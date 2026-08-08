@@ -1,6 +1,10 @@
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 import path from "node:path";
+import { pairTelegram } from "./pair.js";
+import { loadSecrets, saveSecrets } from "../state/secrets.js";
 import { writeJsonAtomic } from "../state/atomic.js";
 import { projectConfigDir, statePaths, type PathsOptions } from "../state/paths.js";
 import {
@@ -125,8 +129,10 @@ export function runInit(projectRoot: string, opts: PathsOptions = {}): InitResul
 }
 
 export async function initCommand(args: string[]): Promise<number> {
-  // --no-telegram is accepted today and becomes meaningful in M3 (pairing step).
-  void args;
+  const { values } = parseArgs({
+    args,
+    options: { "no-telegram": { type: "boolean", default: false } },
+  });
   let result: InitResult;
   try {
     result = runInit(process.cwd());
@@ -146,9 +152,36 @@ export async function initCommand(args: string[]): Promise<number> {
   console.log(`Project config: ${rel(result.configDir)}  (commit this directory)`);
   console.log(`State & secrets: ${result.stateRoot}  (outside the repo, never committed)`);
   console.log("");
+  // Telegram pairing (skippable; interactive only).
+  const sp = statePaths(process.cwd());
+  if (values["no-telegram"]) {
+    console.log("Telegram: skipped (--no-telegram). Run fh init again to pair later.");
+  } else if (existsSync(sp.secretsFile) && loadSecrets(sp).telegram) {
+    console.log("Telegram: already paired.");
+  } else if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.log("Telegram: not paired (non-interactive shell). Run fh init in a terminal to pair.");
+  } else {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      const pairing = await pairTelegram(
+        { ask: (q) => rl.question(q), say: (l) => console.log(l) },
+        { projectName: path.basename(process.cwd()) },
+      );
+      saveSecrets(sp, {
+        telegram: { botToken: pairing.botToken, chatId: pairing.chatId },
+      });
+      console.log(`Telegram: paired with @${pairing.botUsername} — check your chat for the hello.`);
+    } catch (err) {
+      console.log(`Telegram: not paired (${err instanceof Error ? err.message : String(err)})`);
+      console.log("You can pair any time by running fh init again.");
+    } finally {
+      rl.close();
+    }
+  }
+
+  console.log("");
   console.log("Next steps:");
   console.log("  1. Fill in .founder-helpers/profile.md — the team reads it every run");
   console.log("  2. fh doctor");
-  console.log("  3. Telegram pairing arrives in an upcoming release (fh init will guide you)");
   return 0;
 }
