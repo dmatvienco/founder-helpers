@@ -1,0 +1,42 @@
+{
+  "language": "auto",
+  "integrationBranch": "main",
+  "branchPrefix": "team/",
+  "labels": {
+    "approved": "status:approved",
+    "inProgress": "status:in-progress",
+    "review": "status:review",
+    "blocked": "status:blocked"
+  },
+  "runner": {
+    "kind": "claude",
+    "model": "claude-sonnet-5",
+    "permissionMode": "allowlist"
+  },
+  "roles": {
+    "dev": {
+      "timeoutMin": 90
+    },
+    "reviewer": {
+      "timeoutMin": 20
+    }
+  },
+  "digest": {
+    "enabled": true,
+    "cron": "0 8 * * *",
+    "pipeline": [
+      {
+        "prepare": [],
+        "role": "pm",
+        "mode": "morning"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "name": "tests",
+      "cmd": "npm test",
+      "dir": "."
+    }
+  ]
+}

@@ -21,7 +21,10 @@ export class ClaudeRunner implements Runner {
     if (spec.permissionMode === "bypass") {
       args.push("--dangerously-skip-permissions");
     } else {
-      if (spec.permissionMode === "acceptEdits") args.push("--permission-mode", "acceptEdits");
+      // Both non-bypass modes run acceptEdits + the generated allowlist:
+      // file edits auto-accepted (a headless dev must be able to write code),
+      // Bash gated by the settings rules. Denials fail soft in -p mode.
+      args.push("--permission-mode", "acceptEdits");
       if (spec.settingsFile) args.push("--settings", spec.settingsFile);
     }
     for (const dir of spec.addDirs) args.push("--add-dir", dir);
