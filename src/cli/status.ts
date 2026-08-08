@@ -1,13 +1,96 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { parseArgs } from "node:util";
 import { loadQueue } from "../core/queue.js";
-import { statePaths } from "../state/paths.js";
+import { statePaths, type PathsOptions } from "../state/paths.js";
 import { RunRecordSchema } from "../state/schema.js";
 import { isAlive } from "../util/tree-kill.js";
 import { loadConfig, loadLedger } from "./run.js";
 
-export async function statusCommand(_args: string[]): Promise<number> {
+export interface StatusJson {
+  daemon: { running: boolean; pid: number | null; heartbeatAgeSec: number | null };
+  queue: Array<{ id: string; kind: string; issue?: number; retryAt?: string }>;
+  lastRuns: Array<{ id: string; role: string; status: string }>;
+  grants: string[];
+  digest: { enabled: boolean; cron: string | null };
+}
+
+/**
+ * Pure data gathering for `fh status` — no stdout writes, so it's shared by
+ * the human-readable printer and `--json`, and is directly testable.
+ */
+export function gatherStatus(projectRoot: string, opts: PathsOptions = {}): StatusJson {
+  const sp = statePaths(projectRoot, opts);
+
+  let daemon: StatusJson["daemon"] = { running: false, pid: null, heartbeatAgeSec: null };
+  const hbFile = path.join(sp.root, "heartbeat.json");
+  if (existsSync(hbFile)) {
+    try {
+      const hb = JSON.parse(readFileSync(hbFile, "utf8")) as { pid: number; at: string };
+      const heartbeatAgeSec = Math.round((Date.now() - new Date(hb.at).getTime()) / 1000);
+      daemon = { running: isAlive(hb.pid) && heartbeatAgeSec < 90, pid: hb.pid, heartbeatAgeSec };
+    } catch {
+      // unreadable heartbeat: report as not running, pid/age unknown
+    }
+  }
+
+  const queue = loadQueue(sp.queueFile).jobs.map((j) => ({
+    id: j.id,
+    kind: j.kind,
+    ...(j.issue !== undefined ? { issue: j.issue } : {}),
+    ...(j.retryAt ? { retryAt: j.retryAt } : {}),
+  }));
+
+  let lastRuns: StatusJson["lastRuns"] = [];
+  if (existsSync(sp.runsDir)) {
+    lastRuns = readdirSync(sp.runsDir)
+      .sort()
+      .reverse()
+      .slice(0, 5)
+      .flatMap((id) => {
+        const recFile = path.join(sp.runsDir, id, "record.json");
+        if (!existsSync(recFile)) return [];
+        try {
+          const rec = RunRecordSchema.parse(JSON.parse(readFileSync(recFile, "utf8")));
+          return [{ id: rec.id, role: rec.role, status: rec.status }];
+        } catch {
+          return [];
+        }
+      });
+  }
+
+  let grants: string[] = [];
+  try {
+    grants = loadLedger(projectRoot)
+      .grants.filter((g) => g.granted && !g.revoked)
+      .map((g) => g.scope);
+  } catch {
+    // ledger unreadable: report no active grants
+  }
+
+  let digest: StatusJson["digest"] = { enabled: false, cron: null };
+  try {
+    const config = loadConfig(projectRoot);
+    digest = { enabled: config.digest.enabled, cron: config.digest.cron };
+  } catch {
+    // config missing/unreadable: report digest as disabled
+  }
+
+  return { daemon, queue, lastRuns, grants, digest };
+}
+
+export async function statusCommand(args: string[]): Promise<number> {
+  const { values } = parseArgs({
+    args,
+    options: { json: { type: "boolean", default: false } },
+  });
   const projectRoot = process.cwd();
+
+  if (values.json) {
+    console.log(JSON.stringify(gatherStatus(projectRoot)));
+    return 0;
+  }
+
   const sp = statePaths(projectRoot);
 
   // Daemon liveness via heartbeat.
