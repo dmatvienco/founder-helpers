@@ -137,6 +137,7 @@ export async function runCommand(args: string[]): Promise<number> {
       issue: { type: "string" },
       base: { type: "string" },
       timeout: { type: "string" },
+      message: { type: "string" },
     },
   });
   const role = positionals[0];
@@ -149,6 +150,7 @@ export async function runCommand(args: string[]): Promise<number> {
       mode: values.mode,
       issue: values.issue ? Number(values.issue) : undefined,
       base: values.base,
+      inboundMessage: values.message,
       ...(values.timeout ? { timeoutMsOverride: Number(values.timeout) * 60_000 } : {}),
     });
     console.log(`status: ${outcome.record.status} (exit ${outcome.record.exitCode ?? "n/a"})`);

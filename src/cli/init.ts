@@ -21,6 +21,29 @@ function templatesDir(): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "templates");
 }
 
+function skillDir(): string {
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "skill", "founder-helpers");
+}
+
+/**
+ * Install/refresh the Claude Code skill into the project. The skill is
+ * shipped brains (like templates), so --refresh-skill overwrites it after a
+ * package update; without force we only create what's missing.
+ */
+export function installSkill(projectRoot: string, force: boolean): string[] {
+  const target = path.join(projectRoot, ".claude", "skills", "founder-helpers");
+  mkdirSync(target, { recursive: true });
+  const written: string[] = [];
+  for (const name of ["SKILL.md", "reference.md"]) {
+    const dest = path.join(target, name);
+    if (force || !existsSync(dest)) {
+      copyFileSync(path.join(skillDir(), name), dest);
+      written.push(dest);
+    }
+  }
+  return written;
+}
+
 /** Sniff the stack and propose check commands (extended per-stack over time). */
 export function detectChecks(projectRoot: string): ProjectConfig["checks"] {
   const checks: ProjectConfig["checks"] = [];
@@ -131,11 +154,16 @@ export function runInit(projectRoot: string, opts: PathsOptions = {}): InitResul
 export async function initCommand(args: string[]): Promise<number> {
   const { values } = parseArgs({
     args,
-    options: { "no-telegram": { type: "boolean", default: false } },
+    options: {
+      "no-telegram": { type: "boolean", default: false },
+      "refresh-skill": { type: "boolean", default: false },
+    },
   });
   let result: InitResult;
   try {
     result = runInit(process.cwd());
+    const skillFiles = installSkill(process.cwd(), values["refresh-skill"] ?? false);
+    result.created.push(...skillFiles);
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     return 1;

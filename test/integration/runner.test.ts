@@ -43,7 +43,7 @@ describe("runRole with the ClaudeRunner (fake claude binaries)", () => {
     expect(outcome.record.status).toBe("ok");
 
     const prompt = readFileSync(path.join(outcome.runDir, "prompt.md"), "utf8");
-    expect(prompt).toContain("Role: Developer (template stub)"); // shipped template
+    expect(prompt).toContain("# Role: Developer"); // shipped template
     expect(prompt).toContain("# Project profile"); // founder questionnaire
     expect(prompt).toContain("Project overlay"); // team's own knowledge
     expect(prompt).toContain("Active standing grants");
