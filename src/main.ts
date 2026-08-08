@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { doctorCommand } from "./cli/doctor.js";
+import { initCommand } from "./cli/init.js";
 
 export interface Command {
   name: string;
@@ -8,9 +10,12 @@ export interface Command {
   run: (args: string[]) => Promise<number>;
 }
 
-// Real commands land milestone by milestone (init, daemon, run, status,
-// doctor, logs, send, queue, grant). The dispatcher stays this small on purpose.
-const commands: Command[] = [];
+// Remaining commands land milestone by milestone (daemon, run, status, logs,
+// send, queue, grant). The dispatcher stays this small on purpose.
+const commands: Command[] = [
+  { name: "init", summary: "Set up founder-helpers in the current project", run: initCommand },
+  { name: "doctor", summary: "Check the environment and configuration", run: doctorCommand },
+];
 
 function packageVersion(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
