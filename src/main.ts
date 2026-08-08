@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { doctorCommand } from "./cli/doctor.js";
 import { initCommand } from "./cli/init.js";
+import { runCommand } from "./cli/run.js";
 
 export interface Command {
   name: string;
@@ -15,6 +16,7 @@ export interface Command {
 const commands: Command[] = [
   { name: "init", summary: "Set up founder-helpers in the current project", run: initCommand },
   { name: "doctor", summary: "Check the environment and configuration", run: doctorCommand },
+  { name: "run", summary: "Run one role once (fh run <role> [--issue N])", run: runCommand },
 ];
 
 function packageVersion(): string {
