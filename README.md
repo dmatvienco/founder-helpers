@@ -10,9 +10,12 @@ being rebuilt here as a portable, installable tool.
 
 ## Status
 
-Pre-release skeleton. Nothing to use yet — watch the repo.
+0.1.x — young but real: the full loop (Telegram → PM → work queue → dev run →
+fresh-eyes review → gated merge) is implemented, tested on a 3-OS CI matrix,
+and dogfooded — [#8](https://github.com/dmatvienco/founder-helpers/issues/8)
+was built by this repo's own AI team. Docs: [getting started](docs/getting-started.md).
 
-## How it will work
+## How it works
 
 - `npm i -g founder-helpers`
 - `fh init` in your project: role overlays and the team's knowledge base live in
