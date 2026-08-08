@@ -1,0 +1,55 @@
+{
+  "name": "founder-helpers",
+  "version": "0.0.1",
+  "description": "Founder's little helpers: an AI team (PM, developer, reviewer) running on headless Claude Code, reporting to you in your chat, in your language",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ai-agents",
+    "automation",
+    "telegram",
+    "solo-founder",
+    "indie-hacker"
+  ],
+  "license": "MIT",
+  "author": "Denis Matvienco",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmatvienco/founder-helpers.git"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "founder-helpers": "./dist/index.js",
+    "fh": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "skill",
+    "examples"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "dev": "tsx src/index.ts",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "croner": "^10.0.1",
+    "proper-lockfile": "^4.1.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/proper-lockfile": "^4.1.4",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.11",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
