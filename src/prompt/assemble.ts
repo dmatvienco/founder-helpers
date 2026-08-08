@@ -21,6 +21,8 @@ export interface AssembleContext {
   base?: string | undefined;
   /** Set when the work lane is busy, so a reply-mode PM defers git mutations. */
   activeWorkJob?: string | undefined;
+  /** The founder's message this run must answer (reply mode). */
+  inboundMessage?: string | undefined;
   grants: Grant[];
 }
 
@@ -108,6 +110,9 @@ export function assemblePrompt(ctx: AssembleContext): AssembledPrompt {
       : undefined,
     ctx.activeWorkJob
       ? `- NOTE: the work lane is currently busy (${ctx.activeWorkJob}). Do not perform git-mutating actions in this run; report status honestly instead.`
+      : undefined,
+    ctx.inboundMessage !== undefined
+      ? `- The founder just wrote (answer THIS message):\n\n"""\n${ctx.inboundMessage}\n"""`
       : undefined,
     `- Run id: ${ctx.runId}`,
   ].filter((l): l is string => Boolean(l));

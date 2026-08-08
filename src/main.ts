@@ -1,10 +1,14 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { daemonCommand } from "./cli/daemon.js";
 import { doctorCommand } from "./cli/doctor.js";
 import { initCommand } from "./cli/init.js";
+import { logsCommand } from "./cli/logs.js";
+import { queueCommand } from "./cli/queue.js";
 import { runCommand } from "./cli/run.js";
 import { sendCommand } from "./cli/send.js";
+import { statusCommand } from "./cli/status.js";
 
 export interface Command {
   name: string;
@@ -12,13 +16,16 @@ export interface Command {
   run: (args: string[]) => Promise<number>;
 }
 
-// Remaining commands land milestone by milestone (daemon, run, status, logs,
-// send, queue, grant). The dispatcher stays this small on purpose.
+// `fh grant` lands in M5. The dispatcher stays this small on purpose.
 const commands: Command[] = [
   { name: "init", summary: "Set up founder-helpers in the current project", run: initCommand },
-  { name: "doctor", summary: "Check the environment and configuration", run: doctorCommand },
+  { name: "daemon", summary: "Run the daemon in the foreground", run: daemonCommand },
   { name: "run", summary: "Run one role once (fh run <role> [--issue N])", run: runCommand },
+  { name: "queue", summary: "Work queue: add --issue N | list | remove <id>", run: queueCommand },
+  { name: "status", summary: "Daemon, queue, last runs, grants", run: statusCommand },
+  { name: "logs", summary: "Show the daemon log (-n 50, --follow)", run: logsCommand },
   { name: "send", summary: "Send text/photo to the founder's chat", run: sendCommand },
+  { name: "doctor", summary: "Check the environment and configuration", run: doctorCommand },
 ];
 
 function packageVersion(): string {
