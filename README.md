@@ -1,9 +1,13 @@
 # founder-helpers
 
+[![CI](https://github.com/dmatvienco/founder-helpers/actions/workflows/ci.yml/badge.svg)](https://github.com/dmatvienco/founder-helpers/actions/workflows/ci.yml)
+
 **Founder's little helpers** — your own AI team (a PM, a developer and a reviewer) built on
 headless [Claude Code](https://claude.com/claude-code) runs. The PM talks to you in Telegram,
 in your language; the team takes issues, writes code in branches, reviews it with fresh eyes,
 and merges only when you say yes.
+
+**→ [The idea, for engineers — with diagrams](docs/README.md)**
 
 Born as a set of scripts that has been running a real product's team since July 2026;
 being rebuilt here as a portable, installable tool.
