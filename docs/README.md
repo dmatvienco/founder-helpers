@@ -13,7 +13,8 @@ one markdown file per role. Everything the team is and knows lives in git.
 
 ## One conversation, end to end
 
-What actually happens when you approve a task from your phone:
+What actually happens between "I want this" typed on your phone and merged
+code (chat shown in English — the team mirrors whatever language you write):
 
 ```mermaid
 sequenceDiagram
@@ -23,20 +24,24 @@ sequenceDiagram
     participant DEV as Dev session
     participant REV as Reviewer session
 
-    F->>D: «да 5»  (any language)
+    F->>D: "I want users to export their invoices as CSV"
     D->>PM: spawn headless claude (reply mode)
-    PM->>PM: label the issue, fh queue add --issue 64
+    PM->>PM: shape it: scope, edge cases, acceptance criteria<br/>→ GitHub issue #12 "CSV export of invoices"
+    PM-->>F: "Filed as #12: export button on the billing page,<br/>streamed CSV, tests included. Start now? (yes 12 / no 12)"
+    F->>D: "yes 12"
+    D->>PM: spawn reply run
+    PM->>PM: label approved, fh queue add --issue 12
     PM-->>F: "On it — dev starts now, ~1h"
     Note over D: work lane picks the job within seconds
     D->>DEV: spawn dev run
-    DEV->>DEV: branch team/issue-64 → code → tests → push branch
+    DEV->>DEV: branch team/issue-12 → code → tests → push branch
     D->>D: post-conditions in CODE:<br/>branch on origin? report written?
     D->>REV: spawn reviewer — FRESH context
     REV->>REV: reads the diff skeptically, reruns tests itself
     REV->>REV: verdict file: first line ✅ / ⚠️ / ❌
-    D-->>F: 🔧 issue #64 — ✅ safe to merge (+ honest warnings, if any)
-    F->>D: "yes, merge"
-    D->>PM: reply run → merge gate → merge --no-ff → push
+    D-->>F: 🔧 issue #12 — ✅ safe to merge (+ honest warnings, if any)
+    F->>D: "merge it"
+    D->>PM: spawn reply run → merge gate → merge --no-ff → push
 ```
 
 Three ideas hide in this picture:
