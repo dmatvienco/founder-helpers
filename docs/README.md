@@ -54,8 +54,6 @@ Three ideas hide in this picture:
    After each run the daemon itself checks: is the branch actually on origin?
    does the report file exist? does the verdict parse? Whatever fails becomes
    an honest warning line in your chat.
-3. **Nothing runs on a night schedule.** Work starts when you say go. The
-   only cron job is the morning digest — and you can turn it off.
 
 ---
 
