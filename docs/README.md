@@ -150,7 +150,7 @@ When you decide the team has earned autonomy, you say so once — and it's
 {
   "scope": "git.merge_integration_branch",
   "date": "2026-08-04T15:00:00Z",
-  "quote": "мержи сам, если ревью зелёное — не спрашивай каждый раз",
+  "quote": "merge it yourself when the review is green — stop asking every time",
   "conditions": "tests green AND verdict ✅ only",
   "revoked": null
 }
