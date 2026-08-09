@@ -26,8 +26,8 @@ sequenceDiagram
 
     F->>D: "I want users to export their invoices as CSV"
     D->>PM: spawn headless claude (reply mode)
-    PM->>PM: shape it: scope, edge cases, acceptance criteria<br/>→ GitHub issue #12 "CSV export of invoices"
-    PM-->>F: "Filed as #12: export button on the billing page,<br/>streamed CSV, tests included. Start now? (yes 12 / no 12)"
+    PM->>PM: shape it: scope, edge cases, acceptance criteria<br/>→ GitHub issue 12, "CSV export of invoices"
+    PM-->>F: "Filed as issue 12: export button on the billing page,<br/>streamed CSV, tests included. Start now? (yes 12 / no 12)"
     F->>D: "yes 12"
     D->>PM: spawn reply run
     PM->>PM: label approved, fh queue add --issue 12
@@ -39,12 +39,12 @@ sequenceDiagram
     D->>REV: spawn reviewer — FRESH context
     REV->>REV: reads the diff skeptically, reruns tests itself
     REV->>REV: verdict file: first line ✅ / ⚠️ / ❌
-    D-->>F: 🔧 issue #12 — ✅ safe to merge (+ honest warnings, if any)
+    D-->>F: 🔧 issue 12 — ✅ safe to merge (+ honest warnings, if any)
     F->>D: "merge it"
     D->>PM: spawn reply run → merge gate → merge --no-ff → push
 ```
 
-Three ideas hide in this picture:
+Two ideas hide in this picture:
 
 1. **The dev and the reviewer never share a context.** The reviewer doesn't
    know how hard the dev tried — it sees an issue, a diff and a claim, and it
