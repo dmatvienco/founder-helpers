@@ -79,7 +79,12 @@ export class TelegramTransport implements Transport {
           description?: string;
           result?: {
             update_id: number;
-            message?: { chat?: { id: number | string }; text?: string; date?: number };
+            message?: {
+              chat?: { id: number | string };
+              text?: string;
+              caption?: string;
+              date?: number;
+            };
           }[];
         };
         if (!data.ok) throw new Error(`getUpdates failed: ${data.description ?? res.status}`);
@@ -87,19 +92,26 @@ export class TelegramTransport implements Transport {
         for (const u of data.result ?? []) {
           if (this.stopped) break;
           const msg = u.message;
-          if (
-            msg?.chat &&
-            String(msg.chat.id) === String(this.o.chatId) &&
-            typeof msg.text === "string"
-          ) {
-            // Sequential by design; a rejection means "not processed" and the
-            // offset stays put, so the message is redelivered — never lost.
-            await onMessage({
-              updateId: u.update_id,
-              chatId: msg.chat.id,
-              text: msg.text,
-              date: msg.date ?? 0,
-            });
+          if (msg?.chat && String(msg.chat.id) === String(this.o.chatId)) {
+            // A caption carries the text of a photo/video message; treat it
+            // the same as message.text (#10).
+            const text = typeof msg.text === "string" ? msg.text : msg.caption;
+            if (typeof text === "string") {
+              // Sequential by design; a rejection means "not processed" and the
+              // offset stays put, so the message is redelivered — never lost.
+              await onMessage({
+                updateId: u.update_id,
+                chatId: msg.chat.id,
+                text,
+                date: msg.date ?? 0,
+              });
+            } else {
+              // Bare photo/sticker/voice etc: nothing we can read. Tell the
+              // founder instead of silently dropping it (#10) — a rejection
+              // here also keeps the offset put, so the notice is redelivered
+              // on failure like any other handled message.
+              await this.send("I can only read text so far.");
+            }
           }
           this.lastUpdateId = u.update_id;
           writeJsonAtomic(
