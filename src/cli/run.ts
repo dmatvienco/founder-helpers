@@ -81,7 +81,7 @@ export async function runRole(
   const runId = newRunId(role);
   const runDir = path.join(sp.runsDir, runId);
 
-  const settingsFile = writeClaudeSettings(projectRoot, config, ledger);
+  const settingsFile = writeClaudeSettings(sp.root, config, ledger);
   const { promptFile, spawnPrompt } = assemblePrompt({
     projectRoot,
     paths: sp,
