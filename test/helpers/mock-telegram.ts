@@ -8,13 +8,22 @@ import type { AddressInfo } from "node:net";
 
 interface StoredUpdate {
   update_id: number;
-  message: { chat: { id: number | string; first_name?: string }; text: string; date: number };
+  message: {
+    chat: { id: number | string; first_name?: string };
+    text?: string;
+    caption?: string;
+    date: number;
+  };
 }
 
 export interface MockTelegram {
   url: string;
   /** Queue an inbound message from the founder. Returns its update_id. */
   pushUpdate(text: string, chatId?: number | string): number;
+  /** Queue an inbound photo with a caption (no message.text). Returns its update_id. */
+  pushCaptionedPhoto(caption: string, chatId?: number | string): number;
+  /** Queue an inbound photo/sticker/voice with no text and no caption. Returns its update_id. */
+  pushNonTextUpdate(chatId?: number | string): number;
   sentMessages: { chat_id: unknown; text: string }[];
   chatActions: number;
   photos: { raw: string }[];
@@ -99,6 +108,26 @@ export async function startMockTelegram(defaultChatId: number | string = 42): Pr
       updates.push({
         update_id: id,
         message: { chat: { id: chatId, first_name: "Denis" }, text, date: Math.floor(Date.now() / 1000) },
+      });
+      return id;
+    },
+    pushCaptionedPhoto(caption: string, chatId = defaultChatId): number {
+      const id = nextUpdateId++;
+      updates.push({
+        update_id: id,
+        message: {
+          chat: { id: chatId, first_name: "Denis" },
+          caption,
+          date: Math.floor(Date.now() / 1000),
+        },
+      });
+      return id;
+    },
+    pushNonTextUpdate(chatId = defaultChatId): number {
+      const id = nextUpdateId++;
+      updates.push({
+        update_id: id,
+        message: { chat: { id: chatId, first_name: "Denis" }, date: Math.floor(Date.now() / 1000) },
       });
       return id;
     },
