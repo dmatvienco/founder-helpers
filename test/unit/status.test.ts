@@ -79,9 +79,9 @@ describe("gatherStatus", () => {
       writeRun(repo, opts, `run-${i}`, "dev", "ok");
     }
 
-    recordGrant(repo, { scope: "git.merge_integration_branch", quote: "go ahead" });
-    const revoked = recordGrant(repo, { scope: "deploy.production", quote: "not yet" });
-    revokeGrant(repo, revoked.id);
+    recordGrant(repo, { scope: "git.merge_integration_branch", quote: "go ahead" }, opts);
+    const revoked = recordGrant(repo, { scope: "deploy.production", quote: "not yet" }, opts);
+    revokeGrant(repo, revoked.id, opts);
 
     const data = gatherStatus(repo, opts);
 
