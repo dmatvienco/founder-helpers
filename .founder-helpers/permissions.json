@@ -1,4 +1,21 @@
 {
   "version": 1,
-  "grants": []
+  "grants": [
+    {
+      "id": "g-2026-08-10-git-merge-integration-branch-sjq",
+      "scope": "git.merge_integration_branch",
+      "granted": true,
+      "date": "2026-08-10T20:46:54.767Z",
+      "quote": "Мерджи и пушь сама, больше не спрашивай",
+      "revoked": null
+    },
+    {
+      "id": "g-2026-08-10-git-push-integration-branch-lqi",
+      "scope": "git.push_integration_branch",
+      "granted": true,
+      "date": "2026-08-10T20:46:55.280Z",
+      "quote": "Мерджи и пушь сама, больше не спрашивай",
+      "revoked": null
+    }
+  ]
 }
