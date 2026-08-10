@@ -13,6 +13,8 @@ export interface PairResult {
   botToken: string;
   chatId: string | number;
   botUsername: string;
+  /** The last update_id the wizard consumed — persist this or the daemon replays it. */
+  lastUpdateId: number;
 }
 
 interface TgResponse<T> {
@@ -72,7 +74,17 @@ export async function pairTelegram(
       "No message arrived in time. Run \"fh init\" again when you're ready to send one.",
     );
   }
+  const lastUpdateId = offset - 1;
   io.say(`Got it — chat ${chatId}${firstName ? ` (${firstName})` : ""}.`);
+
+  // Confirm the backlog server-side too. The offset we persist locally is
+  // what actually stops the daemon replaying it, but Telegram itself only
+  // drops an update once a getUpdates call passes a higher offset.
+  try {
+    await tg<unknown[]>(apiBase, botToken, `getUpdates?offset=${offset}&timeout=0`);
+  } catch {
+    // best effort — local persistence is the real guard against replay
+  }
 
   // Prove the outbound path end to end.
   const send = await fetch(`${apiBase}/bot${botToken}/sendMessage`, {
@@ -88,5 +100,5 @@ export async function pairTelegram(
     throw new Error(`Confirmation message failed: ${sendData.description ?? send.status}`);
   }
 
-  return { botToken, chatId, botUsername };
+  return { botToken, chatId, botUsername, lastUpdateId };
 }
