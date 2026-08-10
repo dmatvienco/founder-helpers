@@ -3,10 +3,10 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import path from "node:path";
-import { pairTelegram } from "./pair.js";
+import { pairTelegram, type PairResult } from "./pair.js";
 import { loadSecrets, saveSecrets } from "../state/secrets.js";
 import { writeJsonAtomic } from "../state/atomic.js";
-import { projectConfigDir, statePaths, type PathsOptions } from "../state/paths.js";
+import { projectConfigDir, statePaths, type PathsOptions, type StatePaths } from "../state/paths.js";
 import {
   LedgerSchema,
   ProjectConfigSchema,
@@ -151,6 +151,20 @@ export function runInit(projectRoot: string, opts: PathsOptions = {}): InitResul
   return { created, skipped, configDir, stateRoot: sp.root };
 }
 
+/**
+ * Persist a successful pairing: the secret (token/chat) and the code-owned
+ * transport offset, so the daemon's first poll starts right after the
+ * founder's pairing message instead of replaying it.
+ */
+export function persistPairing(sp: StatePaths, pairing: PairResult): void {
+  saveSecrets(sp, { telegram: { botToken: pairing.botToken, chatId: pairing.chatId } });
+  writeJsonAtomic(
+    sp.transportStateFile,
+    { lastUpdateId: pairing.lastUpdateId },
+    TransportStateSchema,
+  );
+}
+
 export async function initCommand(args: string[]): Promise<number> {
   const { values } = parseArgs({
     args,
@@ -195,9 +209,7 @@ export async function initCommand(args: string[]): Promise<number> {
         { ask: (q) => rl.question(q), say: (l) => console.log(l) },
         { projectName: path.basename(process.cwd()) },
       );
-      saveSecrets(sp, {
-        telegram: { botToken: pairing.botToken, chatId: pairing.chatId },
-      });
+      persistPairing(sp, pairing);
       console.log(`Telegram: paired with @${pairing.botUsername} — check your chat for the hello.`);
     } catch (err) {
       console.log(`Telegram: not paired (${err instanceof Error ? err.message : String(err)})`);
