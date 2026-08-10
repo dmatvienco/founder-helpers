@@ -54,6 +54,45 @@ describe("TelegramTransport", () => {
     expect(readJson(stateFile, TransportStateSchema).lastUpdateId).toBe(secondId);
   });
 
+  it("delivers a captioned photo using the caption as text (#10)", async () => {
+    const server = await startMockTelegram();
+    cleanups.push(() => server.close());
+    const stateFile = tmpStateFile();
+    const seen: string[] = [];
+    const t = makeTransport(server, stateFile);
+    t.start(async (m: InboundMessage) => {
+      seen.push(m.text);
+    });
+    const captionId = server.pushCaptionedPhoto("посмотри на это");
+    await until(() => seen.length === 1, 5000, "captioned photo");
+    expect(seen).toEqual(["посмотри на это"]);
+    await t.stop();
+    expect(readJson(stateFile, TransportStateSchema).lastUpdateId).toBe(captionId);
+  });
+
+  it("sends a one-time notice for a bare update with no text and no caption, and does not call the handler (#10)", async () => {
+    const server = await startMockTelegram();
+    cleanups.push(() => server.close());
+    const stateFile = tmpStateFile();
+    const seen: string[] = [];
+    const t = makeTransport(server, stateFile);
+    t.start(async (m: InboundMessage) => {
+      seen.push(m.text);
+    });
+    const stickerId = server.pushNonTextUpdate();
+    await until(
+      () => server.sentMessages.some((m) => m.text.includes("I can only read text so far")),
+      5000,
+      "notice sent",
+    );
+    await t.stop();
+    expect(seen).toEqual([]);
+    expect(
+      server.sentMessages.filter((m) => m.text.includes("I can only read text so far")).length,
+    ).toBe(1);
+    expect(readJson(stateFile, TransportStateSchema).lastUpdateId).toBe(stickerId);
+  });
+
   it("ignores messages from a foreign chat but still advances past them", async () => {
     const server = await startMockTelegram();
     cleanups.push(() => server.close());
