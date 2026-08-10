@@ -3,9 +3,13 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { runInit } from "../../src/cli/init.js";
+import { runInit, persistPairing } from "../../src/cli/init.js";
+import { pairTelegram } from "../../src/cli/pair.js";
 import { runChecks } from "../../src/cli/doctor.js";
-import { ProjectConfigSchema } from "../../src/state/schema.js";
+import { readJson } from "../../src/state/atomic.js";
+import { statePaths } from "../../src/state/paths.js";
+import { ProjectConfigSchema, TransportStateSchema } from "../../src/state/schema.js";
+import { startMockTelegram } from "../helpers/mock-telegram.js";
 
 function makeRepo(): { repo: string; stateBase: string } {
   const repo = mkdtempSync(path.join(tmpdir(), "fh-init-"));
@@ -49,6 +53,25 @@ describe("fh init (files only)", () => {
     expect(existsSync(path.join(res.stateRoot, "queue.json"))).toBe(true);
     expect(existsSync(path.join(res.stateRoot, "transport-state.json"))).toBe(true);
     expect(existsSync(path.join(res.stateRoot, "logs"))).toBe(true);
+  });
+
+  it("persists the pairing offset into transport-state.json (no replay on first daemon start)", async () => {
+    const { repo, stateBase } = makeRepo();
+    runInit(repo, { stateBase });
+    const sp = statePaths(repo, { stateBase });
+
+    const server = await startMockTelegram();
+    try {
+      const hiId = server.pushUpdate("hi", 4242);
+      const pairing = await pairTelegram(
+        { ask: async () => "TOKEN", say: () => {} },
+        { apiBase: server.url, projectName: "demo", maxWaitMs: 5000 },
+      );
+      persistPairing(sp, pairing);
+      expect(readJson(sp.transportStateFile, TransportStateSchema).lastUpdateId).toBe(hiId);
+    } finally {
+      await server.close();
+    }
   });
 
   it("is idempotent and never overwrites what the team wrote", () => {

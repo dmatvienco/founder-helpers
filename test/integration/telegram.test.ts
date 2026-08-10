@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readJson } from "../../src/state/atomic.js";
+import { readJson, writeJsonAtomic } from "../../src/state/atomic.js";
 import { TransportStateSchema } from "../../src/state/schema.js";
 import { TelegramTransport } from "../../src/transport/telegram.js";
 import type { InboundMessage } from "../../src/transport/transport.js";
@@ -175,7 +175,10 @@ describe("pairTelegram", () => {
   it("validates the token, captures the chat id and sends the hello", async () => {
     const server = await startMockTelegram();
     cleanups.push(() => server.close());
-    setTimeout(() => server.pushUpdate("hi", 4242), 100);
+    let hiId = 0;
+    setTimeout(() => {
+      hiId = server.pushUpdate("hi", 4242);
+    }, 100);
     const said: string[] = [];
     const result = await pairTelegram(
       { ask: async () => "PAIR_TOKEN", say: (l) => said.push(l) },
@@ -183,7 +186,35 @@ describe("pairTelegram", () => {
     );
     expect(result.botUsername).toBe("mockbot");
     expect(result.chatId).toBe(4242);
+    expect(result.lastUpdateId).toBe(hiId);
     expect(server.sentMessages.some((m) => m.text.includes("connected"))).toBe(true);
     expect(said.some((l) => l.includes("@mockbot"))).toBe(true);
+  });
+
+  it("leaves nothing unconfirmed — a daemon seeded with its offset never replays the pairing message", async () => {
+    const server = await startMockTelegram();
+    cleanups.push(() => server.close());
+    const stateFile = tmpStateFile();
+
+    const hiId = server.pushUpdate("hi", 4242); // update N, the founder's pairing message
+    const pairing = await pairTelegram(
+      { ask: async () => "PAIR_TOKEN", say: () => {} },
+      { apiBase: server.url, projectName: "demo", maxWaitMs: 5000 },
+    );
+    expect(pairing.lastUpdateId).toBe(hiId);
+
+    // What init.ts does right after pairing succeeds.
+    writeJsonAtomic(stateFile, { lastUpdateId: pairing.lastUpdateId }, TransportStateSchema);
+
+    const seen: string[] = [];
+    const t = makeTransport(server, stateFile, { chatId: 4242 });
+    t.start(async (m) => {
+      seen.push(m.text);
+    });
+    server.pushUpdate("next", 4242); // update N+1, arrives after pairing
+
+    await until(() => seen.length === 1, 5000, "post-pairing message");
+    expect(seen).toEqual(["next"]); // "hi" was NOT replayed
+    await t.stop();
   });
 });
