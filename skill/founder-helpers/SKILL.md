@@ -16,12 +16,12 @@ member: prefer fixing the system over doing the team's work for it.
   labels, runner, digest cron, checks), `profile.md` (product context),
   `roles/*.md` (project overlays = the team's own memory; for roles without a
   shipped template the same file IS the role), `permissions.json` (standing
-  grants, audit trail), `claude-settings.json` (GENERATED — never hand-edit;
-  regenerate via `fh grant`).
+  grants, audit trail).
 - Everything else is in the state dir (outside the repo): run `fh status` to
   see it, or `fh doctor` for its path. Code-owned files there
-  (`queue.json`, `transport-state.json`, `heartbeat.json`) must never be
-  edited by hand or by a model — use the CLI.
+  (`queue.json`, `transport-state.json`, `heartbeat.json`,
+  `claude-settings.json` — GENERATED, regenerated via `fh grant`) must never
+  be edited by hand or by a model — use the CLI.
 - Machine contracts (verdict first line, outbox semantics, report paths):
   see `reference.md` next to this skill.
 

@@ -31,11 +31,11 @@
 
 ## Permission model
 
-- Headless runs use a GENERATED allowlist (`.founder-helpers/claude-settings.json`):
-  git/gh/check-commands allowed; pushing to the integration branch denied
-  until `git.merge_integration_branch` or `git.push_integration_branch` is
-  granted; force-push always denied. Denials in headless fail soft — the role
-  reports the grant recipe.
+- Headless runs use a GENERATED allowlist (`claude-settings.json` in the
+  state dir): git/gh/check-commands allowed; pushing to the integration
+  branch denied until `git.merge_integration_branch` or
+  `git.push_integration_branch` is granted; force-push always denied.
+  Denials in headless fail soft — the role reports the grant recipe.
 - `runner.bypass_permissions` grant is the only path to
   `--dangerously-skip-permissions`, and `fh doctor` + the daemon warn while
   it is active.
@@ -45,5 +45,6 @@
 ## State dir layout
 
 `secrets.json`, `transport-state.json`, `queue.json`, `heartbeat.json`,
+`claude-settings.json` (GENERATED, regenerated on every run/grant change),
 `runs/<id>/{prompt.md,output.log,record.json}`, `outbox/`, `pm/` (PM-owned),
 `dev/` (reports/verdicts/screens), `logs/daemon.log(.1..3)`.
