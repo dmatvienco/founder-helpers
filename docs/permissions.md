@@ -1,11 +1,12 @@
 # Permissions: modest by default, explicit by grant
 
 Headless runs get a GENERATED Claude Code allowlist
-(`.founder-helpers/claude-settings.json`): git, gh, `fh`, and your configured
-check commands are allowed; **pushing to the integration branch is denied**;
-force-push is always denied. In headless `-p` mode a denied tool fails SOFT:
-the model receives the denial and is required by its template to report the
-exact unblock recipe instead of faking success.
+(`claude-settings.json`, written into the state dir — never committed, never
+hand-edited): git, gh, `fh`, and your configured check commands are allowed;
+**pushing to the integration branch is denied**; force-push is always denied.
+In headless `-p` mode a denied tool fails SOFT: the model receives the denial
+and is required by its template to report the exact unblock recipe instead of
+faking success.
 
 ## Standing grants
 

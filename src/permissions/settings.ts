@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Ledger, ProjectConfig } from "../state/schema.js";
 
@@ -43,13 +43,18 @@ export function generateClaudeSettings(config: ProjectConfig, ledger: Ledger): o
   };
 }
 
-/** Write (regenerate) .founder-helpers/claude-settings.json; returns its path. */
+/**
+ * Write (regenerate) claude-settings.json into the state dir; returns its
+ * path. Lives outside the repo — it's a generated artifact of config +
+ * ledger, never something to commit or hand-edit.
+ */
 export function writeClaudeSettings(
-  projectRoot: string,
+  stateRoot: string,
   config: ProjectConfig,
   ledger: Ledger,
 ): string {
-  const file = path.join(projectRoot, ".founder-helpers", "claude-settings.json");
+  const file = path.join(stateRoot, "claude-settings.json");
+  mkdirSync(stateRoot, { recursive: true });
   writeFileSync(file, `${JSON.stringify(generateClaudeSettings(config, ledger), null, 2)}\n`, "utf8");
   return file;
 }

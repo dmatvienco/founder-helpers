@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { runInit } from "../../src/cli/init.js";
 import { runRole } from "../../src/cli/run.js";
 import { MockRunner } from "../../src/runner/mock-runner.js";
+import { statePaths } from "../../src/state/paths.js";
 import { isAlive } from "../../src/util/tree-kill.js";
 
 const fixturesBin = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "bin");
@@ -57,6 +58,12 @@ describe("runRole with the ClaudeRunner (fake claude binaries)", () => {
 
     const output = readFileSync(outcome.outputLog, "utf8");
     expect(output).toContain("done");
+
+    // Regression for #9: the generated allowlist must never land inside the
+    // repo (it would dirty the tree on every run) — only in the state dir.
+    expect(existsSync(path.join(repo, ".founder-helpers", "claude-settings.json"))).toBe(false);
+    const sp = statePaths(repo, { stateBase });
+    expect(existsSync(path.join(sp.root, "claude-settings.json"))).toBe(true);
   });
 
   it("includes recorded grants in the prompt", async () => {
