@@ -4,15 +4,28 @@ import { parseArgs } from "node:util";
 import { loadQueue } from "../core/queue.js";
 import { statePaths, type PathsOptions } from "../state/paths.js";
 import { RunRecordSchema } from "../state/schema.js";
+import { commitsBehindHead, headCommit } from "../util/git.js";
 import { isAlive } from "../util/tree-kill.js";
 import { loadConfig, loadLedger } from "./run.js";
 
 export interface StatusJson {
-  daemon: { running: boolean; pid: number | null; heartbeatAgeSec: number | null };
+  daemon: {
+    running: boolean;
+    pid: number | null;
+    heartbeatAgeSec: number | null;
+    commit: string | null;
+    commitsBehind: number | null;
+  };
   queue: Array<{ id: string; kind: string; issue?: number; retryAt?: string }>;
   lastRuns: Array<{ id: string; role: string; status: string }>;
   grants: string[];
   digest: { enabled: boolean; cron: string | null };
+}
+
+interface Heartbeat {
+  pid: number;
+  at: string;
+  commit?: string | null;
 }
 
 /**
@@ -22,15 +35,28 @@ export interface StatusJson {
 export function gatherStatus(projectRoot: string, opts: PathsOptions = {}): StatusJson {
   const sp = statePaths(projectRoot, opts);
 
-  let daemon: StatusJson["daemon"] = { running: false, pid: null, heartbeatAgeSec: null };
+  let daemon: StatusJson["daemon"] = {
+    running: false,
+    pid: null,
+    heartbeatAgeSec: null,
+    commit: null,
+    commitsBehind: null,
+  };
   const hbFile = path.join(sp.root, "heartbeat.json");
   if (existsSync(hbFile)) {
     try {
-      const hb = JSON.parse(readFileSync(hbFile, "utf8")) as { pid: number; at: string };
+      const hb = JSON.parse(readFileSync(hbFile, "utf8")) as Heartbeat;
       const heartbeatAgeSec = Math.round((Date.now() - new Date(hb.at).getTime()) / 1000);
-      daemon = { running: isAlive(hb.pid) && heartbeatAgeSec < 90, pid: hb.pid, heartbeatAgeSec };
+      const commit = hb.commit ?? null;
+      daemon = {
+        running: isAlive(hb.pid) && heartbeatAgeSec < 90,
+        pid: hb.pid,
+        heartbeatAgeSec,
+        commit,
+        commitsBehind: commit ? commitsBehindHead(projectRoot, commit) : null,
+      };
     } catch {
-      // unreadable heartbeat: report as not running, pid/age unknown
+      // unreadable heartbeat: report as not running, pid/age/commit unknown
     }
   }
 
@@ -97,7 +123,7 @@ export async function statusCommand(args: string[]): Promise<number> {
   const hbFile = path.join(sp.root, "heartbeat.json");
   if (existsSync(hbFile)) {
     try {
-      const hb = JSON.parse(readFileSync(hbFile, "utf8")) as { pid: number; at: string };
+      const hb = JSON.parse(readFileSync(hbFile, "utf8")) as Heartbeat;
       const ageSec = Math.round((Date.now() - new Date(hb.at).getTime()) / 1000);
       const alive = isAlive(hb.pid) && ageSec < 90;
       console.log(
@@ -105,6 +131,24 @@ export async function statusCommand(args: string[]): Promise<number> {
           ? `daemon: running (pid ${hb.pid}, heartbeat ${ageSec}s ago)`
           : `daemon: NOT running (last heartbeat ${ageSec}s ago, pid ${hb.pid})`,
       );
+
+      const commit = hb.commit ?? null;
+      if (commit) {
+        const behind = commitsBehindHead(projectRoot, commit);
+        const head = headCommit(projectRoot);
+        if (behind !== null && head && behind > 0) {
+          console.log(
+            `daemon running commit ${commit.slice(0, 7)}, ${behind} commit(s) behind HEAD ` +
+              `${head.slice(0, 7)} — restart to pick up recent merges`,
+          );
+        } else if (behind === 0) {
+          console.log(`daemon running commit ${commit.slice(0, 7)} (up to date with HEAD)`);
+        } else {
+          console.log(`daemon running commit ${commit.slice(0, 7)} (drift vs HEAD unknown)`);
+        }
+      } else {
+        console.log("daemon commit: unknown (started before this daemon recorded it)");
+      }
     } catch {
       console.log("daemon: unknown (heartbeat unreadable)");
     }
