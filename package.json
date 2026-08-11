@@ -1,6 +1,6 @@
 {
   "name": "founder-helpers",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Founder's little helpers: an AI team (PM, developer, reviewer) running on headless Claude Code, reporting to you in your chat, in your language",
   "keywords": [
     "claude",
