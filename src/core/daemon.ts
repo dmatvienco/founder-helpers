@@ -8,6 +8,7 @@ import { statePaths, type PathsOptions } from "../state/paths.js";
 import { createProjectTransport } from "../transport/telegram.js";
 import type { Transport } from "../transport/transport.js";
 import type { Runner } from "../runner/runner.js";
+import { headCommit } from "../util/git.js";
 import { addJob } from "./queue.js";
 import { ReplyLane } from "./reply.js";
 import { Worker } from "./worker.js";
@@ -92,12 +93,16 @@ export async function startDaemon(
     logger.info(`cron: digest scheduled (${config.digest.cron})`);
   }
 
+  // Captured once: the daemon's in-process module graph never hot-reloads,
+  // so this stays the commit it was started from until the process restarts.
+  const startCommit = headCommit(projectRoot);
+
   const heartbeatFile = path.join(sp.root, "heartbeat.json");
   const heartbeat = (): void => {
     try {
       writeFileSync(
         heartbeatFile,
-        JSON.stringify({ pid: process.pid, at: new Date().toISOString() }),
+        JSON.stringify({ pid: process.pid, at: new Date().toISOString(), commit: startCommit }),
         "utf8",
       );
     } catch {
@@ -109,7 +114,9 @@ export async function startDaemon(
 
   worker.start();
   transport.start(replyLane.handler);
-  logger.info(`daemon started pid=${process.pid} project=${projectRoot}`);
+  logger.info(
+    `daemon started pid=${process.pid} project=${projectRoot} commit=${startCommit ?? "unknown"}`,
+  );
 
   if (config.runner.permissionMode === "bypass") {
     logger.warn(

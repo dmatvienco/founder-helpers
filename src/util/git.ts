@@ -47,3 +47,26 @@ export function isTreeClean(dir: string): boolean {
     return false;
   }
 }
+
+/** Current HEAD commit hash, or null if `dir` isn't a readable git repo. */
+export function headCommit(dir: string): string | null {
+  try {
+    return git(dir, ["rev-parse", "HEAD"]);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How many commits `dir`'s current HEAD is ahead of `oldCommit`. Null if
+ * `oldCommit` isn't a reachable ancestor (rebase/force-push rewrote history,
+ * or `dir` isn't a git repo) rather than throwing.
+ */
+export function commitsBehindHead(dir: string, oldCommit: string): number | null {
+  try {
+    const count = git(dir, ["rev-list", "--count", `${oldCommit}..HEAD`]);
+    return parseInt(count, 10);
+  } catch {
+    return null;
+  }
+}
