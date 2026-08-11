@@ -14,6 +14,15 @@ project-specific lands here. The team edits this file itself as it learns. Commi
 - Windows dev box: run repo commands via `cmd /c "cd /d <dir> && ..."` when a
   shell's cwd is unreliable; never rely on POSIX-only shell syntax in scripts
   that CI runs on the Windows leg.
+- Headless dev runs on this box: the Bash tool's cwd is already the project
+  root, and wrapping a command in `cmd /c "cd /d ... && ..."` triggers a
+  permission-approval prompt that nobody is present to answer — the run just
+  hangs until timeout. Call `npm run ...` / `git ...` directly instead.
+- `proper-lockfile`'s `stale` option is floored at 2000ms internally
+  (`lib/lockfile.js`: `Math.max(options.stale || 0, 2000)`), no matter what
+  you pass. Any code or test that tunes lock staleness below 2s silently gets
+  2000ms instead — budget retry timeouts against that real floor, not the
+  number you passed in.
 
 ## Build, test and smoke procedures
 

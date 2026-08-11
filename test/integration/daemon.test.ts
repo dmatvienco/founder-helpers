@@ -1,5 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -156,6 +156,66 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
     await expect(
       startDaemon(env.repo, { pathsOpts: { stateBase: env.stateBase } }),
     ).rejects.toThrow(/Another daemon appears to be running/);
+  });
+
+  it("restart-in-place recovers once a dead holder's lock goes stale, without waiting for it", async () => {
+    const env = await makeEnv();
+
+    // Spawn (and let exit) a throwaway process first, so its pid is
+    // guaranteed dead before the timing-sensitive part of the test starts.
+    const dead = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
+
+    // Simulate a previous daemon that never released its lock (e.g. a hard
+    // `taskkill`/SIGKILL that skipped graceful cleanup): the lock directory
+    // exists and is fresh (mtime "now"), and its heartbeat still names a
+    // pid — but that pid is dead.
+    const lockfilePath = path.join(env.sp.root, "daemon.lock");
+    mkdirSync(lockfilePath);
+    const now = new Date();
+    utimesSync(lockfilePath, now, now);
+    writeFileSync(
+      path.join(env.sp.root, "heartbeat.json"),
+      JSON.stringify({ pid: dead.pid, at: now.toISOString() }),
+      "utf8",
+    );
+
+    const logs: string[] = [];
+    const logger = {
+      debug: () => {},
+      warn: () => {},
+      error: () => {},
+      info: (msg: string) => logs.push(msg),
+      file: "",
+    };
+
+    // proper-lockfile floors `stale` at 2000ms internally regardless of what
+    // we pass, so the retry budget below must clear that real floor.
+    const handle = await boot(env, [], {
+      lockStaleMs: 2_000,
+      lockRetries: { retries: 10, minTimeout: 250, maxTimeout: 400 },
+      logger,
+    });
+
+    expect(handle.paths.root).toBe(env.sp.root);
+    expect(logs.some((l) => l.includes("waiting for the previous daemon's lock to expire"))).toBe(
+      true,
+    );
+  }, 15000);
+
+  it("second daemon dies loudly immediately even with retries configured, while the first is alive", async () => {
+    const env = await makeEnv();
+    await boot(env, []);
+    const start = Date.now();
+    await expect(
+      startDaemon(env.repo, {
+        pathsOpts: { stateBase: env.stateBase },
+        lockStaleMs: 300,
+        lockRetries: { retries: 5, minTimeout: 50, maxTimeout: 100 },
+      }),
+    ).rejects.toThrow(/Another daemon appears to be running/);
+    // No retry wait: the heartbeat shows the holder alive, so this must fail
+    // as fast as the original single-attempt check did.
+    expect(Date.now() - start).toBeLessThan(300);
   });
 
   it("session limit pauses the job with retryAt and notifies once", async () => {

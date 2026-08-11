@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import lockfile from "proper-lockfile";
 import { Cron } from "croner";
@@ -9,9 +9,30 @@ import { createProjectTransport } from "../transport/telegram.js";
 import type { Transport } from "../transport/transport.js";
 import type { Runner } from "../runner/runner.js";
 import { headCommit } from "../util/git.js";
+import { isAlive } from "../util/tree-kill.js";
 import { addJob } from "./queue.js";
 import { ReplyLane } from "./reply.js";
 import { Worker } from "./worker.js";
+
+// A restart-in-place (e.g. right after `npm update -g`, or a hard-killed
+// daemon on Windows where `schtasks /End` skips graceful lock release) lands
+// inside the lock's own staleness window. Only wait it out when the previous
+// holder is actually gone — a live holder must still fail fast.
+const LOCK_STALE_MS = 60_000;
+const HEARTBEAT_FRESH_SEC = 90;
+
+/** true when the heartbeat file names a pid that is alive and reporting recently. */
+function isPreviousHolderAlive(sp: ReturnType<typeof statePaths>): boolean {
+  const hbFile = path.join(sp.root, "heartbeat.json");
+  if (!existsSync(hbFile)) return false;
+  try {
+    const hb = JSON.parse(readFileSync(hbFile, "utf8")) as { pid: number; at: string };
+    const ageSec = (Date.now() - new Date(hb.at).getTime()) / 1000;
+    return isAlive(hb.pid) && ageSec < HEARTBEAT_FRESH_SEC;
+  } catch {
+    return false;
+  }
+}
 
 export interface DaemonOptions {
   pathsOpts?: PathsOptions;
@@ -22,6 +43,8 @@ export interface DaemonOptions {
   limitRetryMs?: number;
   replyMaxAttempts?: number;
   logger?: Logger;
+  lockStaleMs?: number;
+  lockRetries?: { retries: number; minTimeout: number; maxTimeout: number };
 }
 
 export interface DaemonHandle {
@@ -45,17 +68,27 @@ export async function startDaemon(
 
   // Single instance per project — a second daemon must die loudly, not split
   // the getUpdates offset between two pollers.
+  const lockfilePath = path.join(sp.root, "daemon.lock");
+  const lockStaleMs = opts.lockStaleMs ?? LOCK_STALE_MS;
+  const lockOpts = { lockfilePath, stale: lockStaleMs, update: Math.max(lockStaleMs / 6, 1_000) };
+  const lockRetries = opts.lockRetries ?? { retries: 10, minTimeout: 3_000, maxTimeout: 10_000 };
+  const lockError = (): Error =>
+    new Error(`Another daemon appears to be running for this project (lock: ${lockfilePath}).`);
   let release: () => Promise<void>;
   try {
-    release = await lockfile.lock(sp.root, {
-      lockfilePath: path.join(sp.root, "daemon.lock"),
-      stale: 60_000,
-      update: 10_000,
-    });
+    release = await lockfile.lock(sp.root, lockOpts);
   } catch {
-    throw new Error(
-      `Another daemon appears to be running for this project (lock: ${path.join(sp.root, "daemon.lock")}).`,
-    );
+    if (isPreviousHolderAlive(sp)) {
+      throw lockError();
+    }
+    // The previous holder is gone (or never reported in) but its lock hasn't
+    // aged past `stale` yet — wait it out instead of dying immediately.
+    logger.info("waiting for the previous daemon's lock to expire...");
+    try {
+      release = await lockfile.lock(sp.root, { ...lockOpts, retries: lockRetries });
+    } catch {
+      throw lockError();
+    }
   }
 
   const transport = opts.transport ?? createProjectTransport(projectRoot, pathsOpts, { logger });
