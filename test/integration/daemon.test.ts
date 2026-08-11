@@ -116,8 +116,11 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
     expect(completion?.text).toContain("not found on origin");
     // Attempted job is removed from the queue.
     expect(loadQueue(env.sp.queueFile).jobs).toEqual([]);
-    // Typing indicator was actually used.
-    expect(env.server.chatActions).toBeGreaterThan(0);
+    // Typing indicator was actually used. sendChatAction is fire-and-forget
+    // (see setTyping in src/transport/telegram.ts), so its HTTP round trip
+    // can still be in flight after the completion message lands — poll
+    // instead of asserting synchronously (#15).
+    await until(() => env.server.chatActions > 0, 2000, "typing indicator tick");
   });
 
   it("job stays in the queue until its chain completes (crash-safe), then is removed", async () => {
