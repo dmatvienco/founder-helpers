@@ -5,7 +5,7 @@ import { loadQueue } from "../core/queue.js";
 import { statePaths, type PathsOptions } from "../state/paths.js";
 import { RunRecordSchema } from "../state/schema.js";
 import { commitsBehindHead, headCommit } from "../util/git.js";
-import { isAlive } from "../util/tree-kill.js";
+import { heartbeatStatus } from "../util/tree-kill.js";
 import { loadConfig, loadLedger } from "./run.js";
 
 export interface StatusJson {
@@ -46,10 +46,10 @@ export function gatherStatus(projectRoot: string, opts: PathsOptions = {}): Stat
   if (existsSync(hbFile)) {
     try {
       const hb = JSON.parse(readFileSync(hbFile, "utf8")) as Heartbeat;
-      const heartbeatAgeSec = Math.round((Date.now() - new Date(hb.at).getTime()) / 1000);
+      const { ageSec: heartbeatAgeSec, fresh } = heartbeatStatus(hb);
       const commit = hb.commit ?? null;
       daemon = {
-        running: isAlive(hb.pid) && heartbeatAgeSec < 90,
+        running: fresh,
         pid: hb.pid,
         heartbeatAgeSec,
         commit,
@@ -124,8 +124,7 @@ export async function statusCommand(args: string[]): Promise<number> {
   if (existsSync(hbFile)) {
     try {
       const hb = JSON.parse(readFileSync(hbFile, "utf8")) as Heartbeat;
-      const ageSec = Math.round((Date.now() - new Date(hb.at).getTime()) / 1000);
-      const alive = isAlive(hb.pid) && ageSec < 90;
+      const { ageSec, fresh: alive } = heartbeatStatus(hb);
       console.log(
         alive
           ? `daemon: running (pid ${hb.pid}, heartbeat ${ageSec}s ago)`
