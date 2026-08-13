@@ -9,6 +9,7 @@ import { runRole } from "../../src/cli/run.js";
 import { MockRunner } from "../../src/runner/mock-runner.js";
 import { statePaths } from "../../src/state/paths.js";
 import { isAlive } from "../../src/util/tree-kill.js";
+import { until } from "../helpers/mock-telegram.js";
 
 const fixturesBin = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "bin");
 
@@ -56,6 +57,14 @@ describe("runRole with the ClaudeRunner (fake claude binaries)", () => {
     expect(prompt).toContain("review-issue7.md");
     expect(prompt).toContain("running HEADLESS");
 
+    // ClaudeRunner calls stream.end() without awaiting it (fire-and-forget),
+    // so the output.log flush can still be in flight when run() resolves —
+    // poll instead of asserting synchronously, same race class as #15.
+    await until(
+      () => existsSync(outcome.outputLog) && readFileSync(outcome.outputLog, "utf8").includes("done"),
+      2000,
+      "output log flush",
+    );
     const output = readFileSync(outcome.outputLog, "utf8");
     expect(output).toContain("done");
 
