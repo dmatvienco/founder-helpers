@@ -9,7 +9,7 @@ import { createProjectTransport } from "../transport/telegram.js";
 import type { Transport } from "../transport/transport.js";
 import type { Runner } from "../runner/runner.js";
 import { headCommit } from "../util/git.js";
-import { isAlive } from "../util/tree-kill.js";
+import { heartbeatStatus } from "../util/tree-kill.js";
 import { addJob } from "./queue.js";
 import { ReplyLane } from "./reply.js";
 import { Worker } from "./worker.js";
@@ -19,7 +19,6 @@ import { Worker } from "./worker.js";
 // inside the lock's own staleness window. Only wait it out when the previous
 // holder is actually gone — a live holder must still fail fast.
 const LOCK_STALE_MS = 60_000;
-const HEARTBEAT_FRESH_SEC = 90;
 
 /** true when the heartbeat file names a pid that is alive and reporting recently. */
 function isPreviousHolderAlive(sp: ReturnType<typeof statePaths>): boolean {
@@ -27,8 +26,7 @@ function isPreviousHolderAlive(sp: ReturnType<typeof statePaths>): boolean {
   if (!existsSync(hbFile)) return false;
   try {
     const hb = JSON.parse(readFileSync(hbFile, "utf8")) as { pid: number; at: string };
-    const ageSec = (Date.now() - new Date(hb.at).getTime()) / 1000;
-    return isAlive(hb.pid) && ageSec < HEARTBEAT_FRESH_SEC;
+    return heartbeatStatus(hb).fresh;
   } catch {
     return false;
   }

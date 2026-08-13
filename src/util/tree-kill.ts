@@ -39,3 +39,17 @@ export function isAlive(pid: number): boolean {
     return (err as NodeJS.ErrnoException).code === "EPERM";
   }
 }
+
+/**
+ * Age (in whole seconds) and liveness of a heartbeat, using the "alive AND
+ * reported within `freshSec` seconds" rule that daemon liveness detection
+ * needs everywhere it's checked — kept in one place so callers can't drift
+ * apart on the staleness threshold.
+ */
+export function heartbeatStatus(
+  hb: { pid: number; at: string },
+  freshSec = 90,
+): { ageSec: number; fresh: boolean } {
+  const ageSec = Math.round((Date.now() - new Date(hb.at).getTime()) / 1000);
+  return { ageSec, fresh: isAlive(hb.pid) && ageSec < freshSec };
+}
