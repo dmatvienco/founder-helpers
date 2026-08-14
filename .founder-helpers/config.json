@@ -26,7 +26,7 @@
     "cron": "0 8 * * *",
     "pipeline": [
       {
-        "prepare": [],
+        "prepare": ["node scripts/collect-metrics.mjs"],
         "role": "pm",
         "mode": "morning"
       }
