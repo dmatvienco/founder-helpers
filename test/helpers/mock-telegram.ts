@@ -25,6 +25,8 @@ export interface MockTelegram {
   /** Queue an inbound photo/sticker/voice with no text and no caption. Returns its update_id. */
   pushNonTextUpdate(chatId?: number | string): number;
   sentMessages: { chat_id: unknown; text: string }[];
+  /** editMessageText calls — progress-message edits, recorded separately from sends. */
+  edits: { chat_id: unknown; message_id: unknown; text: string }[];
   chatActions: number;
   photos: { raw: string }[];
   /** While > 0, getUpdates responds 500 and decrements. Set to Infinity for "down". */
@@ -43,6 +45,7 @@ export async function startMockTelegram(defaultChatId: number | string = 42): Pr
   const updates: StoredUpdate[] = [];
   const state = {
     sentMessages: [] as { chat_id: unknown; text: string }[],
+    edits: [] as { chat_id: unknown; message_id: unknown; text: string }[],
     chatActions: 0,
     photos: [] as { raw: string }[],
     failGetUpdates: 0,
@@ -78,6 +81,16 @@ export async function startMockTelegram(defaultChatId: number | string = 42): Pr
         const body = JSON.parse(await readBody(req)) as { chat_id: unknown; text: string };
         state.sentMessages.push(body);
         json({ ok: true, result: { message_id: state.sentMessages.length } });
+        return;
+      }
+      if (method === "editMessageText") {
+        const body = JSON.parse(await readBody(req)) as {
+          chat_id: unknown;
+          message_id: unknown;
+          text: string;
+        };
+        state.edits.push(body);
+        json({ ok: true, result: { message_id: body.message_id } });
         return;
       }
       if (method === "sendChatAction") {
@@ -133,6 +146,9 @@ export async function startMockTelegram(defaultChatId: number | string = 42): Pr
     },
     get sentMessages() {
       return state.sentMessages;
+    },
+    get edits() {
+      return state.edits;
     },
     get chatActions() {
       return state.chatActions;

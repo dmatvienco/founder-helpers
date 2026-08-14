@@ -21,6 +21,13 @@ export interface RunSpec {
   bin?: string;
   /** Arguments injected BEFORE the computed ones (tests: the script path). */
   binArgs?: string[];
+  /** Called for each progress line as the run streams. Best-effort — a run must complete correctly with nobody listening. */
+  onProgress?: (event: ProgressEvent) => void;
+}
+
+/** A short, ready-to-display action line — e.g. "reading src/x.ts", "running tests". */
+export interface ProgressEvent {
+  text: string;
 }
 
 export interface RunResult {

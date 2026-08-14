@@ -114,6 +114,21 @@ describe("runRole with the ClaudeRunner (fake claude binaries)", () => {
     expect(outcome.record.status).toBe("limit");
   });
 
+  it("streams tool_use events as progress lines, skipping thinking/text blocks (stream-json, #20)", async () => {
+    const { repo, stateBase } = makeProject();
+    const events: string[] = [];
+    const outcome = await runRole(repo, "dev", {
+      issue: 7,
+      paths: { stateBase },
+      onProgress: (e) => events.push(e.text),
+      ...fake("stream.cjs"),
+    });
+    expect(outcome.record.status).toBe("ok");
+    // line2 (the Read tool_use) is written across two separate stdout
+    // chunks by the fixture — this also exercises partial-line buffering.
+    expect(events).toEqual(["reading src/x.ts", "running npm test"]);
+  });
+
   it("maps non-zero exit to error", async () => {
     const { repo, stateBase } = makeProject();
     const outcome = await runRole(repo, "pm", {
@@ -195,5 +210,27 @@ describe("MockRunner", () => {
     expect(
       (await runRole(repo, "pm", { paths: { stateBase }, runner: limitRunner })).record.status,
     ).toBe("limit");
+  });
+
+  it("replays scripted progressEvents through onProgress (#20)", async () => {
+    const { repo, stateBase } = makeProject();
+    const sp = mkdtempSync(path.join(tmpdir(), "fh-mockbase3-"));
+    const runner = new MockRunner(
+      [
+        {
+          role: "pm",
+          progressEvents: [{ text: "reading src/x.ts", delayMs: 5 }, { text: "running tests" }],
+        },
+      ],
+      sp,
+    );
+    const events: string[] = [];
+    const outcome = await runRole(repo, "pm", {
+      paths: { stateBase },
+      runner,
+      onProgress: (e) => events.push(e.text),
+    });
+    expect(outcome.record.status).toBe("ok");
+    expect(events).toEqual(["reading src/x.ts", "running tests"]);
   });
 });

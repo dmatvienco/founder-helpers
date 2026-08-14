@@ -3,7 +3,7 @@ import type { Logger } from "../state/log.js";
 import type { PathsOptions, StatePaths } from "../state/paths.js";
 import { writeJsonAtomic } from "../state/atomic.js";
 import { z } from "zod";
-import type { Runner } from "../runner/runner.js";
+import type { ProgressEvent, Runner } from "../runner/runner.js";
 import { flushOutbox } from "../transport/outbox.js";
 import type { InboundMessage, Transport } from "../transport/transport.js";
 import type { Worker } from "./worker.js";
@@ -30,10 +30,10 @@ export interface ReplyLaneOptions {
 }
 
 /**
- * The chat lane, ported 1:1 from the predecessor's daemon v2 semantics:
- * instant typing indicator, honest 3-strike failure ladder (never silently
- * swallow a founder message), session-limit wait-and-retry without losing
- * the message. Throwing from the handler = transport redelivers.
+ * The chat lane: live progress instead of a static typing indicator (#20),
+ * honest 3-strike failure ladder (never silently swallow a founder
+ * message), session-limit wait-and-retry without losing the message.
+ * Throwing from the handler = transport redelivers.
  */
 export class ReplyLane {
   private attempts = new Map<number, number>();
@@ -58,7 +58,7 @@ export class ReplyLane {
     this.attempts.set(msg.updateId, attempt);
     this.o.logger.info(`reply: update ${msg.updateId} attempt ${attempt}`);
 
-    this.o.transport.setTyping(true);
+    await this.o.transport.startProgress("⏳ working on it…");
     try {
       // For the PM's own records; the message itself is injected into the prompt.
       writeJsonAtomic(
@@ -77,6 +77,7 @@ export class ReplyLane {
         inboundMessage: msg.text,
         activeWorkJob: this.o.worker.busyLabel,
         paths: this.o.pathsOpts,
+        onProgress: (event: ProgressEvent) => this.o.transport.updateProgress(event.text),
         ...(this.o.runner ? { runner: this.o.runner } : {}),
       };
       const res = await runRole(this.o.projectRoot, "pm", opts);
@@ -113,7 +114,7 @@ export class ReplyLane {
       this.attempts.delete(msg.updateId);
       this.limitNotified = false;
     } finally {
-      this.o.transport.setTyping(false);
+      this.o.transport.endProgress();
     }
   };
 }

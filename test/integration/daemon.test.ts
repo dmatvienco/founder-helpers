@@ -49,6 +49,7 @@ async function boot(
     pollTimeoutSec: 0,
     errorSleepMs: 50,
     typingIntervalMs: 60,
+    progressIntervalMs: 30,
   });
   const handle = await startDaemon(env.repo, {
     pathsOpts: { stateBase: env.stateBase },
@@ -116,11 +117,10 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
     expect(completion?.text).toContain("not found on origin");
     // Attempted job is removed from the queue.
     expect(loadQueue(env.sp.queueFile).jobs).toEqual([]);
-    // Typing indicator was actually used. sendChatAction is fire-and-forget
-    // (see setTyping in src/transport/telegram.ts), so its HTTP round trip
-    // can still be in flight after the completion message lands — poll
-    // instead of asserting synchronously (#15).
-    await until(() => env.server.chatActions > 0, 2000, "typing indicator tick");
+    // The PM's reply-mode run opened a live-progress message instead of the
+    // old typing indicator (#20) — startProgress's sendMessage is awaited,
+    // so it's already recorded by the time the PM reply itself lands.
+    expect(env.server.sentMessages.some((m) => m.text.includes("working on it"))).toBe(true);
   });
 
   it("job stays in the queue until its chain completes (crash-safe), then is removed", async () => {
@@ -148,6 +148,38 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
       5000,
       "completion message",
     );
+  });
+
+  it("reply-mode progress: opens one message and edits it with tool-use lines, replacing the typing indicator (#20)", async () => {
+    const env = await makeEnv();
+    await boot(env, [
+      {
+        role: "pm",
+        progressEvents: [
+          { text: "reading src/x.ts", delayMs: 40 },
+          { text: "running tests", delayMs: 40 },
+        ],
+        writeFiles: [{ path: "outbox/reply.txt", content: "готово" }],
+      },
+    ]);
+
+    env.server.pushUpdate("сделай штуку");
+
+    await until(
+      () => env.server.sentMessages.some((m) => m.text.includes("готово")),
+      10000,
+      "reply",
+    );
+    // One progress message opened via sendMessage (never the reply text itself)...
+    expect(env.server.sentMessages.some((m) => m.text.includes("working on it"))).toBe(true);
+    // ...then edited in place with coalesced tool-use lines, not one edit per event.
+    await until(() => env.server.edits.length > 0, 3000, "progress edit");
+    expect(
+      env.server.edits.some(
+        (e) => e.text.includes("reading src/x.ts") || e.text.includes("running tests"),
+      ),
+    ).toBe(true);
+    expect(env.server.edits.every((e) => !e.text.includes("готово"))).toBe(true);
   });
 
   it("second daemon instance dies loudly on the lock", async () => {
