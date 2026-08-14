@@ -26,4 +26,14 @@ export interface Transport {
   sendPhoto(filePath: string, caption?: string): Promise<void>;
   /** Keep a "typing…" indicator alive while composing (best effort). */
   setTyping(on: boolean): void;
+  /**
+   * Live progress for a long headless run: `startProgress` opens one
+   * message, `updateProgress` feeds it the latest short action line
+   * (throttled/coalesced into edits by the implementation — never one edit
+   * per event), `endProgress` stops editing. Best-effort like setTyping: a
+   * missed edit is harmless, callers never await updateProgress/endProgress.
+   */
+  startProgress(initialText: string): Promise<void>;
+  updateProgress(text: string): void;
+  endProgress(): void;
 }

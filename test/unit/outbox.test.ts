@@ -20,6 +20,9 @@ class FakeTransport implements Transport {
     this.photos.push({ file, caption });
   }
   setTyping(_on: boolean): void {}
+  async startProgress(_initialText: string): Promise<void> {}
+  updateProgress(_text: string): void {}
+  endProgress(): void {}
 }
 
 function makeOutbox(): string {

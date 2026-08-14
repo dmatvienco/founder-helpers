@@ -9,6 +9,9 @@ stop()
 send(text)         // implementation chunks as needed
 sendPhoto(path, caption?)
 setTyping(on)
+startProgress(initialText)  // opens one message for a long run's live progress
+updateProgress(text)        // latest short action line; throttled/coalesced into edits
+endProgress()
 ```
 
 Guarantees any implementation must keep:

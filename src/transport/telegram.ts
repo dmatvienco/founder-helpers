@@ -18,6 +18,7 @@ export interface TelegramOptions {
   apiBase?: string;
   pollTimeoutSec?: number;
   typingIntervalMs?: number;
+  progressIntervalMs?: number;
   errorSleepMs?: number;
   /** Identical consecutive loop errors before alerting the founder. */
   alertStreak?: number;
@@ -28,6 +29,10 @@ export class TelegramTransport implements Transport {
   private stopped = true;
   private loopDone: Promise<void> = Promise.resolve();
   private typingTimer: NodeJS.Timeout | undefined;
+  private progressTimer: NodeJS.Timeout | undefined;
+  private progressMessageId: number | undefined;
+  private progressLatest = "";
+  private progressSent = "";
   private inFlight: AbortController | undefined;
   private lastUpdateId = 0;
 
@@ -157,6 +162,7 @@ export class TelegramTransport implements Transport {
   async stop(): Promise<void> {
     this.stopped = true;
     this.setTyping(false);
+    this.endProgress();
     this.inFlight?.abort();
     await this.loopDone;
   }
@@ -200,6 +206,44 @@ export class TelegramTransport implements Transport {
     };
     tick();
     this.typingTimer = setInterval(tick, this.o.typingIntervalMs ?? 4000);
+  }
+
+  async startProgress(initialText: string): Promise<void> {
+    this.endProgress();
+    this.progressLatest = initialText;
+    try {
+      const result = (await this.call("sendMessage", {
+        chat_id: this.o.chatId,
+        text: initialText,
+      })) as { message_id: number };
+      this.progressMessageId = result.message_id;
+      this.progressSent = initialText;
+    } catch {
+      return; // best-effort: no message id means updateProgress has nothing to edit
+    }
+    const tick = (): void => {
+      if (this.progressMessageId === undefined || this.progressLatest === this.progressSent) return;
+      const text = this.progressLatest;
+      this.progressSent = text;
+      void this.call("editMessageText", {
+        chat_id: this.o.chatId,
+        message_id: this.progressMessageId,
+        text,
+      }).catch(() => {});
+    };
+    this.progressTimer = setInterval(tick, this.o.progressIntervalMs ?? 2500);
+  }
+
+  updateProgress(text: string): void {
+    this.progressLatest = text;
+  }
+
+  endProgress(): void {
+    if (this.progressTimer) clearInterval(this.progressTimer);
+    this.progressTimer = undefined;
+    this.progressMessageId = undefined;
+    this.progressLatest = "";
+    this.progressSent = "";
   }
 }
 
