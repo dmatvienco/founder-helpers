@@ -5,7 +5,7 @@ import { assemblePrompt } from "../prompt/assemble.js";
 import { writeClaudeSettings } from "../permissions/settings.js";
 import { ClaudeRunner } from "../runner/claude-runner.js";
 import { MockRunner, type MockScenario } from "../runner/mock-runner.js";
-import type { Runner } from "../runner/runner.js";
+import type { ProgressEvent, Runner } from "../runner/runner.js";
 import { writeJsonAtomic } from "../state/atomic.js";
 import { statePaths, type PathsOptions } from "../state/paths.js";
 import {
@@ -43,6 +43,7 @@ export interface RunRoleOptions {
   bin?: string;
   binArgs?: string[];
   timeoutMsOverride?: number;
+  onProgress?: (event: ProgressEvent) => void;
 }
 
 export interface RunRoleOutcome {
@@ -114,6 +115,7 @@ export async function runRole(
     addDirs: [sp.root],
     ...(opts.bin ? { bin: opts.bin } : {}),
     ...(opts.binArgs ? { binArgs: opts.binArgs } : {}),
+    ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
   });
 
   const record: RunRecord = RunRecordSchema.parse({

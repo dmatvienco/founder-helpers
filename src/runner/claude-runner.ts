@@ -3,13 +3,19 @@ import path from "node:path";
 import { spawnTracked } from "../util/proc.js";
 import { treeKill } from "../util/tree-kill.js";
 import { SESSION_LIMIT_RE, type Runner, type RunResult, type RunSpec } from "./runner.js";
+import { describeToolUse, parseStreamJsonLine, splitLines } from "./stream-json.js";
 
-const TAIL_LIMIT = 64 * 1024; // keep the last 64KB in memory for status detection
+const TAIL_LIMIT = 64 * 1024; // keep the last 64KB of extracted text for status detection
 
 /**
  * Runs one headless claude CLI session with a hard timeout and a guaranteed
  * process-tree kill. Never blocks on anything but the child itself — a
  * headless run has nobody to deliver callbacks to (predecessor issue #64).
+ *
+ * stdout is `--output-format stream-json` (JSON Lines): line-buffered
+ * (holding the trailing partial line across chunks), `tool_use` blocks
+ * become onProgress events, assistant/result text feeds the session-limit
+ * tail. A line that fails to parse is skipped, not fatal.
  */
 export class ClaudeRunner implements Runner {
   async run(spec: RunSpec): Promise<RunResult> {
@@ -17,7 +23,16 @@ export class ClaudeRunner implements Runner {
     const outputLog = path.join(spec.runDir, "output.log");
     const stream = createWriteStream(outputLog, { flags: "a" });
 
-    const args: string[] = [...(spec.binArgs ?? []), "-p", spec.spawnPrompt, "--model", spec.model];
+    const args: string[] = [
+      ...(spec.binArgs ?? []),
+      "-p",
+      spec.spawnPrompt,
+      "--model",
+      spec.model,
+      "--output-format",
+      "stream-json",
+      "--verbose", // the CLI requires this when --print is combined with stream-json output
+    ];
     if (spec.permissionMode === "bypass") {
       args.push("--dangerously-skip-permissions");
     } else {
@@ -32,14 +47,33 @@ export class ClaudeRunner implements Runner {
     const started = Date.now();
     const child = spawnTracked(spec.bin ?? "claude", args, { cwd: spec.cwd });
 
-    let tail = "";
-    const capture = (chunk: Buffer | string): void => {
+    let textTail = "";
+    const appendTail = (text: string): void => {
+      textTail = (textTail + text).slice(-TAIL_LIMIT);
+    };
+
+    let pending = "";
+    child.stdout?.on("data", (chunk: Buffer | string) => {
       const text = chunk.toString();
       stream.write(text);
-      tail = (tail + text).slice(-TAIL_LIMIT);
-    };
-    child.stdout?.on("data", capture);
-    child.stderr?.on("data", capture);
+      const split = splitLines(pending, text);
+      pending = split.pending;
+      for (const line of split.lines) {
+        for (const event of parseStreamJsonLine(line)) {
+          if (event.kind === "tool_use") {
+            spec.onProgress?.({ text: describeToolUse(event.name, event.input) });
+          } else {
+            appendTail(event.text);
+          }
+        }
+      }
+    });
+    // stderr isn't JSON — capture it raw, same as before stream-json.
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      const text = chunk.toString();
+      stream.write(text);
+      appendTail(text);
+    });
 
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -49,7 +83,9 @@ export class ClaudeRunner implements Runner {
 
     const exitCode: number | null = await new Promise((resolve) => {
       child.on("error", (err) => {
-        capture(`\n[runner] spawn error: ${err.message}\n`);
+        const text = `\n[runner] spawn error: ${err.message}\n`;
+        stream.write(text);
+        appendTail(text);
         resolve(null);
       });
       child.on("close", (code) => resolve(code));
@@ -60,7 +96,7 @@ export class ClaudeRunner implements Runner {
 
     const status: RunResult["status"] = timedOut
       ? "timeout"
-      : SESSION_LIMIT_RE.test(tail)
+      : SESSION_LIMIT_RE.test(textTail)
         ? "limit"
         : exitCode === 0
           ? "ok"

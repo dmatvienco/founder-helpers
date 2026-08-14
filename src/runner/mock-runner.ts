@@ -16,6 +16,8 @@ export interface MockScenario {
   delayMs?: number;
   /** Simulates a run that never finishes: resolves as a timeout. */
   hang?: boolean;
+  /** Scripted progress lines, replayed through onProgress (each preceded by its own delay). */
+  progressEvents?: { text: string; delayMs?: number }[];
 }
 
 export class MockRunner implements Runner {
@@ -32,6 +34,10 @@ export class MockRunner implements Runner {
     if (!scenario) {
       writeFileSync(outputLog, `[mock] no scenario for role "${spec.role}"\n`, "utf8");
       return { status: "error", exitCode: 1, outputLog, durationMs: 0 };
+    }
+    for (const event of scenario.progressEvents ?? []) {
+      if (event.delayMs) await new Promise((r) => setTimeout(r, event.delayMs));
+      spec.onProgress?.({ text: event.text });
     }
     if (scenario.delayMs) await new Promise((r) => setTimeout(r, scenario.delayMs));
     if (scenario.hang) {
