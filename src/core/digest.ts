@@ -35,6 +35,9 @@ export async function runDigest(o: DigestOptions): Promise<void> {
           cwd: o.projectRoot,
           timeout: 10 * 60_000,
           windowsHide: true,
+          // Lets a prepare script find its output home without recomputing
+          // the per-OS/per-project path itself.
+          env: { ...process.env, FH_STATE_ROOT: o.paths.root },
         });
         if (stdout.trim()) o.logger.info(`digest prepare out: ${stdout.trim().slice(0, 2000)}`);
         if (stderr.trim()) o.logger.warn(`digest prepare err: ${stderr.trim().slice(0, 2000)}`);
