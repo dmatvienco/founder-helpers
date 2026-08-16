@@ -270,6 +270,68 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
     expect(env.server.sentMessages.filter((m) => m.text.includes("⏳")).length).toBe(1);
   });
 
+  it("auth-expired session pauses the job with retryAt and notifies once with the fix, then drains once it flips back to ok (#21)", async () => {
+    const env = await makeEnv();
+    const scenarios: MockScenario[] = [{ role: "dev", authFailed: true }];
+    await boot(env, scenarios, { limitRetryMs: 200 });
+    addJob(env.sp.queueFile, { kind: "issue", issue: 6, base: "main" });
+
+    await until(
+      () => env.server.sentMessages.some((m) => m.text.includes("/login")),
+      10000,
+      "auth notification",
+    );
+    const q = loadQueue(env.sp.queueFile);
+    expect(q.jobs.length).toBe(1); // stays queued, never dropped
+    expect(q.jobs[0]?.retryAt).toBeDefined(); // backs off instead of hammering
+
+    // give the worker a few more ticks: no duplicate notifications
+    await new Promise((r) => setTimeout(r, 300));
+    expect(env.server.sentMessages.filter((m) => m.text.includes("/login")).length).toBe(1);
+
+    // The founder ran `claude /login` — the next attempt succeeds on its own.
+    scenarios.length = 0;
+    scenarios.push(
+      { role: "dev", writeFiles: [{ path: "dev/report-issue6.md", content: "# report" }] },
+      { role: "reviewer", writeFiles: [{ path: "dev/review-issue6.md", content: "✅ ок" }] },
+    );
+
+    await until(
+      () => loadQueue(env.sp.queueFile).jobs.length === 0,
+      10000,
+      "queue drains without human action",
+    );
+  });
+
+  it("digest: auth-expired role run keeps the digest job queued instead of dropping it silently (#21)", async () => {
+    const env = await makeEnv();
+    await boot(env, [{ role: "pm", authFailed: true }], { limitRetryMs: 60_000 });
+    addJob(env.sp.queueFile, { kind: "digest" });
+
+    await until(
+      () => env.server.sentMessages.some((m) => m.text.includes("/login")),
+      10000,
+      "digest auth notification",
+    );
+    const q = loadQueue(env.sp.queueFile);
+    expect(q.jobs.length).toBe(1); // still queued — the old bug dropped it here
+    expect(q.jobs[0]?.retryAt).toBeDefined();
+  });
+
+  it("reply lane: auth-expired session sends one progress line and one /login notice, never burns the 3-strike ladder (#21)", async () => {
+    const env = await makeEnv();
+    await boot(env, [{ role: "pm", authFailed: true }], { replyMaxAttempts: 3, limitRetryMs: 5 * 60_000 });
+
+    env.server.pushUpdate("привет");
+    await until(
+      () => env.server.sentMessages.some((m) => m.text.includes("/login")),
+      10000,
+      "auth notice",
+    );
+    expect(env.server.sentMessages.filter((m) => m.text.includes("working on it")).length).toBe(1);
+    expect(env.server.sentMessages.some((m) => m.text.includes("Skipping it"))).toBe(false);
+  });
+
   it("reply lane: 3 failed composes -> honest apology, offset advances, next message works", async () => {
     const env = await makeEnv();
     // PM scenario writes NO outbox -> every attempt "fails".

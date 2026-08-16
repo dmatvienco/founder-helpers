@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { runInit, persistPairing } from "../../src/cli/init.js";
 import { pairTelegram } from "../../src/cli/pair.js";
-import { runChecks } from "../../src/cli/doctor.js";
+import { checkClaudeAuth, runChecks } from "../../src/cli/doctor.js";
 import { readJson } from "../../src/state/atomic.js";
 import { statePaths } from "../../src/state/paths.js";
 import { ProjectConfigSchema, TransportStateSchema } from "../../src/state/schema.js";
@@ -102,5 +102,33 @@ describe("fh doctor (partial)", () => {
     // claude/gh may or may not exist on CI machines — only assert presence
     expect(byName["claude CLI"]).toBeDefined();
     expect(byName["gh CLI"]).toBeDefined();
+  });
+
+  it("claude auth: warns (never fails) when no credentials file was ever written (#21)", () => {
+    const home = mkdtempSync(path.join(tmpdir(), "fh-nocreds-"));
+    const check = checkClaudeAuth({ home });
+    expect(check.level).toBe("warn");
+    expect(check.detail).toContain("/login");
+  });
+
+  it("claude auth: ok when the credentials file was touched recently (#21)", () => {
+    const home = mkdtempSync(path.join(tmpdir(), "fh-freshcreds-"));
+    const claudeDir = path.join(home, ".claude");
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(path.join(claudeDir, ".credentials.json"), "{}", "utf8");
+    expect(checkClaudeAuth({ home }).level).toBe("ok");
+  });
+
+  it("claude auth: warns when the credentials file has gone stale (#21)", () => {
+    const home = mkdtempSync(path.join(tmpdir(), "fh-stalecreds-"));
+    const claudeDir = path.join(home, ".claude");
+    mkdirSync(claudeDir, { recursive: true });
+    const file = path.join(claudeDir, ".credentials.json");
+    writeFileSync(file, "{}", "utf8");
+    const longAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 30 days
+    utimesSync(file, longAgo, longAgo);
+    const check = checkClaudeAuth({ home });
+    expect(check.level).toBe("warn");
+    expect(check.detail).toContain("/login");
   });
 });

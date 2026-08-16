@@ -1,4 +1,4 @@
-export type RunStatus = "ok" | "timeout" | "limit" | "error";
+export type RunStatus = "ok" | "timeout" | "limit" | "auth" | "error";
 
 export interface RunSpec {
   role: string;

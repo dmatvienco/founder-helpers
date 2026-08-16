@@ -38,7 +38,8 @@ export interface ReplyLaneOptions {
 export class ReplyLane {
   private attempts = new Map<number, number>();
   private limitNotified = false;
-  private limitUntil = 0;
+  private authNotified = false;
+  private pauseUntil = 0;
   private stopped = false;
 
   constructor(private o: ReplyLaneOptions) {}
@@ -48,8 +49,8 @@ export class ReplyLane {
   }
 
   handler = async (msg: InboundMessage): Promise<void> => {
-    // Respect an active session-limit pause instead of hammering the CLI.
-    while (!this.stopped && Date.now() < this.limitUntil) {
+    // Respect an active session-limit/auth pause instead of hammering the CLI.
+    while (!this.stopped && Date.now() < this.pauseUntil) {
       await new Promise((r) => setTimeout(r, 250));
     }
     if (this.stopped) throw new Error("reply lane stopped");
@@ -82,9 +83,22 @@ export class ReplyLane {
       };
       const res = await runRole(this.o.projectRoot, "pm", opts);
 
+      if (res.record.status === "auth") {
+        const wait = this.o.limitRetryMs ?? 15 * 60_000;
+        this.pauseUntil = Date.now() + wait;
+        if (!this.authNotified) {
+          this.authNotified = true;
+          await this.o.transport.send(
+            "🔒 Claude CLI session expired — run `claude /login` (or `claude login`) on the machine, " +
+              "everything resumes automatically. Your message is queued.",
+          );
+        }
+        throw new Error("auth expired"); // redeliver after the pause
+      }
+
       if (res.record.status === "limit") {
         const wait = this.o.limitRetryMs ?? 15 * 60_000;
-        this.limitUntil = Date.now() + wait;
+        this.pauseUntil = Date.now() + wait;
         if (!this.limitNotified) {
           this.limitNotified = true;
           await this.o.transport.send(
@@ -113,6 +127,7 @@ export class ReplyLane {
       // Success: clean bookkeeping.
       this.attempts.delete(msg.updateId);
       this.limitNotified = false;
+      this.authNotified = false;
     } finally {
       this.o.transport.endProgress();
     }

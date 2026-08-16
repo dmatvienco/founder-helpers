@@ -15,7 +15,9 @@ const TAIL_LIMIT = 64 * 1024; // keep the last 64KB of extracted text for status
  * stdout is `--output-format stream-json` (JSON Lines): line-buffered
  * (holding the trailing partial line across chunks), `tool_use` blocks
  * become onProgress events, assistant/result text feeds the session-limit
- * tail. A line that fails to parse is skipped, not fatal.
+ * tail, and a structured `authentication_failed` marker (#21) short-circuits
+ * status to "auth" regardless of exit code. A line that fails to parse is
+ * skipped, not fatal.
  */
 export class ClaudeRunner implements Runner {
   async run(spec: RunSpec): Promise<RunResult> {
@@ -51,6 +53,7 @@ export class ClaudeRunner implements Runner {
     const appendTail = (text: string): void => {
       textTail = (textTail + text).slice(-TAIL_LIMIT);
     };
+    let authFailed = false;
 
     let pending = "";
     child.stdout?.on("data", (chunk: Buffer | string) => {
@@ -62,6 +65,8 @@ export class ClaudeRunner implements Runner {
         for (const event of parseStreamJsonLine(line)) {
           if (event.kind === "tool_use") {
             spec.onProgress?.({ text: describeToolUse(event.name, event.input) });
+          } else if (event.kind === "auth_error") {
+            authFailed = true;
           } else {
             appendTail(event.text);
           }
@@ -96,11 +101,13 @@ export class ClaudeRunner implements Runner {
 
     const status: RunResult["status"] = timedOut
       ? "timeout"
-      : SESSION_LIMIT_RE.test(textTail)
-        ? "limit"
-        : exitCode === 0
-          ? "ok"
-          : "error";
+      : authFailed
+        ? "auth"
+        : SESSION_LIMIT_RE.test(textTail)
+          ? "limit"
+          : exitCode === 0
+            ? "ok"
+            : "error";
 
     return { status, exitCode, outputLog, durationMs: Date.now() - started };
   }

@@ -49,6 +49,23 @@ describe("parseStreamJsonLine", () => {
     expect(parseStreamJsonLine(line)).toEqual([{ kind: "result", text: "done" }]);
   });
 
+  it("detects an expired OAuth session via the structured error field, wherever it lands (#21)", () => {
+    // Real shape observed in the incident: "error" rides on the assistant
+    // line, sibling to "message", not inside message.content.
+    const line = JSON.stringify({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "Failed to authenticate: OAuth session expired and could not be refreshed" }] },
+      error: "authentication_failed",
+      is_api_error_message: true,
+    });
+    expect(parseStreamJsonLine(line)).toEqual([{ kind: "auth_error" }]);
+  });
+
+  it("does not misfire on an unrelated error value", () => {
+    const line = JSON.stringify({ type: "assistant", message: { content: [] }, error: "rate_limited" });
+    expect(parseStreamJsonLine(line)).toEqual([]);
+  });
+
   it("ignores user/tool_result and system lines", () => {
     expect(
       parseStreamJsonLine(

@@ -16,6 +16,8 @@ export interface MockScenario {
   delayMs?: number;
   /** Simulates a run that never finishes: resolves as a timeout. */
   hang?: boolean;
+  /** Simulates an expired/unrefreshable OAuth session: resolves as "auth". */
+  authFailed?: boolean;
   /** Scripted progress lines, replayed through onProgress (each preceded by its own delay). */
   progressEvents?: { text: string; delayMs?: number }[];
 }
@@ -47,6 +49,15 @@ export class MockRunner implements Runner {
         exitCode: null,
         outputLog,
         durationMs: spec.timeoutMs,
+      };
+    }
+    if (scenario.authFailed) {
+      writeFileSync(outputLog, scenario.stdout ?? "[mock] OAuth session expired\n", "utf8");
+      return {
+        status: "auth",
+        exitCode: scenario.exitCode ?? 1,
+        outputLog,
+        durationMs: Date.now() - started,
       };
     }
     for (const f of scenario.writeFiles ?? []) {
