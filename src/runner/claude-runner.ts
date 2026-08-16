@@ -13,11 +13,12 @@ const TAIL_LIMIT = 64 * 1024; // keep the last 64KB of extracted text for status
  * headless run has nobody to deliver callbacks to (predecessor issue #64).
  *
  * stdout is `--output-format stream-json` (JSON Lines): line-buffered
- * (holding the trailing partial line across chunks), `tool_use` blocks
- * become onProgress events, assistant/result text feeds the session-limit
- * tail, and a structured `authentication_failed` marker (#21) short-circuits
- * status to "auth" regardless of exit code. A line that fails to parse is
- * skipped, not fatal.
+ * (holding the trailing partial line across chunks and flushing it once
+ * more after the process closes, #22), `tool_use` blocks become onProgress
+ * events, assistant/result text feeds the session-limit tail, and a
+ * structured `authentication_failed` marker (#21) short-circuits status to
+ * "auth" regardless of exit code. A line that fails to parse is skipped,
+ * not fatal.
  */
 export class ClaudeRunner implements Runner {
   async run(spec: RunSpec): Promise<RunResult> {
@@ -55,23 +56,25 @@ export class ClaudeRunner implements Runner {
     };
     let authFailed = false;
 
+    const handleLine = (line: string): void => {
+      for (const event of parseStreamJsonLine(line)) {
+        if (event.kind === "tool_use") {
+          spec.onProgress?.({ text: describeToolUse(event.name, event.input) });
+        } else if (event.kind === "auth_error") {
+          authFailed = true;
+        } else {
+          appendTail(event.text);
+        }
+      }
+    };
+
     let pending = "";
     child.stdout?.on("data", (chunk: Buffer | string) => {
       const text = chunk.toString();
       stream.write(text);
       const split = splitLines(pending, text);
       pending = split.pending;
-      for (const line of split.lines) {
-        for (const event of parseStreamJsonLine(line)) {
-          if (event.kind === "tool_use") {
-            spec.onProgress?.({ text: describeToolUse(event.name, event.input) });
-          } else if (event.kind === "auth_error") {
-            authFailed = true;
-          } else {
-            appendTail(event.text);
-          }
-        }
-      }
+      for (const line of split.lines) handleLine(line);
     });
     // stderr isn't JSON — capture it raw, same as before stream-json.
     child.stderr?.on("data", (chunk: Buffer | string) => {
@@ -95,6 +98,10 @@ export class ClaudeRunner implements Runner {
       });
       child.on("close", (code) => resolve(code));
     });
+
+    // The last stdout write before close may not be newline-terminated —
+    // flush it the same way as any other line instead of dropping it (#22).
+    if (pending) handleLine(pending);
 
     clearTimeout(timer);
     stream.end();
