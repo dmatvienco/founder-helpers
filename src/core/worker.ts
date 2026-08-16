@@ -39,6 +39,7 @@ export class Worker {
   private ticking: Promise<void> = Promise.resolve();
   private stopped = false;
   private limitNotified = false;
+  private authNotified = false;
 
   constructor(private o: WorkerOptions) {}
 
@@ -103,6 +104,10 @@ export class Worker {
     const dev = await runRole(this.o.projectRoot, "dev", this.roleOpts({ issue, base }));
     this.o.logger.info(`worker: dev done issue #${issue} status=${dev.record.status}`);
 
+    if (dev.record.status === "auth") {
+      this.pauseForAuth(job);
+      return;
+    }
     if (dev.record.status === "limit") {
       this.pauseForLimit(job);
       return;
@@ -125,6 +130,10 @@ export class Worker {
     this.o.logger.info(`worker: reviewer start issue #${issue}`);
     const review = await runRole(this.o.projectRoot, "reviewer", this.roleOpts({ issue, base }));
     this.o.logger.info(`worker: reviewer done issue #${issue} status=${review.record.status}`);
+    if (review.record.status === "auth") {
+      this.pauseForAuth(job);
+      return;
+    }
     if (review.record.status === "limit") {
       this.pauseForLimit(job);
       return;
@@ -143,6 +152,7 @@ export class Worker {
 
     removeJob(this.o.paths.queueFile, job.id);
     this.limitNotified = false;
+    this.authNotified = false;
 
     const head = `🔧 issue #${issue}: dev ${dev.record.status}, review ${review.record.status}.`;
     const body = [head, verdictLine, ...lines].filter(Boolean).join("\n");
@@ -155,7 +165,7 @@ export class Worker {
 
   private async processDigest(job: QueueJob): Promise<void> {
     this.busyLabel = "digest";
-    await runDigest({
+    const result = await runDigest({
       projectRoot: this.o.projectRoot,
       config: this.o.config,
       paths: this.o.paths,
@@ -164,6 +174,14 @@ export class Worker {
       logger: this.o.logger,
       ...(this.o.runner ? { runner: this.o.runner } : {}),
     });
+    if (result.status === "auth") {
+      this.pauseForAuth(job);
+      return;
+    }
+    if (result.status === "limit") {
+      this.pauseForLimit(job);
+      return;
+    }
     removeJob(this.o.paths.queueFile, job.id);
   }
 
@@ -175,6 +193,10 @@ export class Worker {
     }
     this.busyLabel = `role ${role}`;
     const res = await runRole(this.o.projectRoot, role, this.roleOpts({}));
+    if (res.record.status === "auth") {
+      this.pauseForAuth(job);
+      return;
+    }
     if (res.record.status === "limit") {
       this.pauseForLimit(job);
       return;
@@ -195,6 +217,21 @@ export class Worker {
       this.limitNotified = true;
       void this.trySend(
         `⏳ Claude session limit reached — ${describeJob(job)} stays queued and retries automatically.`,
+      );
+    }
+  }
+
+  /** Expired/unrefreshable OAuth session (#21): keep the job, back off, tell the founder once with the fix. */
+  private pauseForAuth(job: QueueJob): void {
+    const retryMs = this.o.limitRetryMs ?? 15 * 60_000;
+    const retryAt = new Date(Date.now() + retryMs).toISOString();
+    setRetry(this.o.paths.queueFile, job.id, retryAt);
+    this.o.logger.warn(`worker: auth expired, job ${job.id} retries at ${retryAt}`);
+    if (!this.authNotified) {
+      this.authNotified = true;
+      void this.trySend(
+        `🔒 Claude CLI session expired — run \`claude /login\` (or \`claude login\`) on the machine, ` +
+          `everything resumes automatically. ${describeJob(job)} stays queued.`,
       );
     }
   }

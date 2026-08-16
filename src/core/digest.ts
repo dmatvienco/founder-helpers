@@ -20,13 +20,21 @@ export interface DigestOptions {
   runner?: Runner;
 }
 
+export interface DigestResult {
+  /** "limit"/"auth" mean a pipeline step hit that condition and the run stopped early — the caller keeps the job queued instead of dropping it. */
+  status: "ok" | "limit" | "auth";
+}
+
 /**
  * The scheduled digest: for each configured pipeline step, run the project's
  * prepare scripts (stats collection etc. — project-owned commands), then the
  * role itself; finally flush whatever landed in the outbox. This is how
  * project-specific data gathering stays out of the generic core.
+ *
+ * A session-limit or auth-expired role run (#21) stops the pipeline right
+ * there instead of silently dropping the digest — the caller re-queues it.
  */
-export async function runDigest(o: DigestOptions): Promise<void> {
+export async function runDigest(o: DigestOptions): Promise<DigestResult> {
   for (const step of o.config.digest.pipeline) {
     for (const cmd of step.prepare) {
       o.logger.info(`digest: prepare "${cmd}"`);
@@ -54,7 +62,11 @@ export async function runDigest(o: DigestOptions): Promise<void> {
       ...(o.runner ? { runner: o.runner } : {}),
     });
     o.logger.info(`digest: role ${step.role} status=${res.record.status}`);
+    if (res.record.status === "limit" || res.record.status === "auth") {
+      return { status: res.record.status };
+    }
   }
   const sent = await flushOutbox(o.transport, o.paths.outboxDir, o.logger);
   o.logger.info(`digest: flushed ${sent} outbox item(s)`);
+  return { status: "ok" };
 }
