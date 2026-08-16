@@ -114,6 +114,15 @@ describe("runRole with the ClaudeRunner (fake claude binaries)", () => {
     expect(outcome.record.status).toBe("limit");
   });
 
+  it("detects the session limit even when the final write has no trailing newline (#22)", async () => {
+    const { repo, stateBase } = makeProject();
+    const outcome = await runRole(repo, "pm", {
+      paths: { stateBase },
+      ...fake("limit-no-newline.cjs"),
+    });
+    expect(outcome.record.status).toBe("limit");
+  });
+
   it("detects an expired OAuth session via the structured error field, not exit code alone (#21)", async () => {
     const { repo, stateBase } = makeProject();
     const outcome = await runRole(repo, "pm", {
