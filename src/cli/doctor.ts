@@ -1,4 +1,5 @@
 import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { projectConfigDir, statePaths, type PathsOptions } from "../state/paths.js";
 import { LedgerSchema, ProjectConfigSchema } from "../state/schema.js";
@@ -27,6 +28,37 @@ function jsonFileCheck(name: string, file: string, schema: { parse: (v: unknown)
       detail: `${file} invalid: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`,
     };
   }
+}
+
+// Claude Code stores its OAuth token at ~/.claude/.credentials.json, refreshed
+// on every successful CLI call. We can't read its actual expiry (format is
+// undocumented/version-dependent), so this is a freshness heuristic, not a
+// real validity check — hence "warn", never "fail" (#21).
+const CREDENTIALS_STALE_MS = 48 * 60 * 60 * 1000;
+
+/** Best-effort OAuth-freshness probe: catches an expired-and-unrefreshable session before a headless run does. */
+export function checkClaudeAuth(opts: PathsOptions = {}): Check {
+  const home = opts.home ?? homedir();
+  const file = path.join(home, ".claude", ".credentials.json");
+  const name = "claude auth";
+  if (!existsSync(file)) {
+    return {
+      name,
+      level: "warn",
+      detail: `${file} not found — log in once with "claude /login" (or "claude login")`,
+    };
+  }
+  const ageMs = Date.now() - statSync(file).mtimeMs;
+  if (ageMs > CREDENTIALS_STALE_MS) {
+    return {
+      name,
+      level: "warn",
+      detail:
+        `credentials untouched for ${Math.round(ageMs / 3_600_000)}h — if headless runs start failing ` +
+        `with an auth error, run "claude /login" (or "claude login")`,
+    };
+  }
+  return { name, level: "ok", detail: "credentials refreshed recently" };
 }
 
 /** All environment/config checks that exist so far (grows with each milestone). */
@@ -62,6 +94,8 @@ export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[]
       ? "found on PATH"
       : "not found — the team manages work through GitHub issues; install gh and run gh auth login",
   });
+
+  checks.push(checkClaudeAuth(opts));
 
   const configDir = projectConfigDir(projectRoot);
   checks.push(jsonFileCheck("config", path.join(configDir, "config.json"), ProjectConfigSchema));
