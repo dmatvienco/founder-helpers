@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0
+
+- The runner detects an expired Claude OAuth session via a structured field
+  instead of guessing from error text, pauses work and notifies the founder
+  once instead of burning retries on a session that can't succeed, and `fh
+  doctor` now checks Claude credential freshness (#21).
+- `ClaudeRunner` flushes the trailing unterminated stdout line after the
+  child process closes instead of dropping it, so a session-limit hit
+  landing in that final line is no longer misclassified as a generic error
+  (#22).
+
 ## 0.2.0
 
 - Reply-mode runs now stream live progress lines to Telegram (via `claude
