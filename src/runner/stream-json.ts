@@ -7,7 +7,8 @@
 export type StreamJsonEvent =
   | { kind: "tool_use"; name: string; input: unknown }
   | { kind: "text"; text: string }
-  | { kind: "result"; text: string };
+  | { kind: "result"; text: string }
+  | { kind: "auth_error" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -15,10 +16,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * Parse one JSON-lines line into the events this runner cares about:
- * `tool_use` blocks (progress lines) and extracted assistant/result text
- * (session-limit detection). `thinking` blocks and anything unrecognized are
- * intentionally dropped — not meant for chat. Malformed lines yield no
- * events instead of throwing.
+ * `tool_use` blocks (progress lines), extracted assistant/result text
+ * (session-limit detection), and a structured OAuth-failure marker (#21 —
+ * observed as a top-level `error: "authentication_failed"` field on the
+ * assistant line that carries the API error, not the final result line).
+ * `thinking` blocks and anything unrecognized are intentionally dropped —
+ * not meant for chat. Malformed lines yield no events instead of throwing.
  */
 export function parseStreamJsonLine(line: string): StreamJsonEvent[] {
   const trimmed = line.trim();
@@ -30,6 +33,12 @@ export function parseStreamJsonLine(line: string): StreamJsonEvent[] {
     return [];
   }
   if (!isRecord(parsed)) return [];
+
+  // Structured, no regex: the CLI marks an auth failure with this exact
+  // field rather than only prose in the result text.
+  if (parsed["error"] === "authentication_failed") {
+    return [{ kind: "auth_error" }];
+  }
 
   if (parsed["type"] === "assistant" && isRecord(parsed["message"])) {
     const content = parsed["message"]["content"];

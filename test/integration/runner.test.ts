@@ -114,6 +114,15 @@ describe("runRole with the ClaudeRunner (fake claude binaries)", () => {
     expect(outcome.record.status).toBe("limit");
   });
 
+  it("detects an expired OAuth session via the structured error field, not exit code alone (#21)", async () => {
+    const { repo, stateBase } = makeProject();
+    const outcome = await runRole(repo, "pm", {
+      paths: { stateBase },
+      ...fake("auth.cjs"),
+    });
+    expect(outcome.record.status).toBe("auth");
+  });
+
   it("streams tool_use events as progress lines, skipping thinking/text blocks (stream-json, #20)", async () => {
     const { repo, stateBase } = makeProject();
     const events: string[] = [];
@@ -210,6 +219,15 @@ describe("MockRunner", () => {
     expect(
       (await runRole(repo, "pm", { paths: { stateBase }, runner: limitRunner })).record.status,
     ).toBe("limit");
+  });
+
+  it("authFailed scenario resolves as auth (#21)", async () => {
+    const { repo, stateBase } = makeProject();
+    const sp = mkdtempSync(path.join(tmpdir(), "fh-mockbase-auth-"));
+    const authRunner = new MockRunner([{ role: "dev", authFailed: true }], sp);
+    expect(
+      (await runRole(repo, "dev", { paths: { stateBase }, runner: authRunner })).record.status,
+    ).toBe("auth");
   });
 
   it("replays scripted progressEvents through onProgress (#20)", async () => {

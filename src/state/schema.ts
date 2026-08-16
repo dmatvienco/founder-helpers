@@ -118,7 +118,7 @@ export const RunRecordSchema = z.object({
   role: z.string(),
   startedAt: z.string(),
   finishedAt: z.string().optional(),
-  status: z.enum(["running", "ok", "timeout", "limit", "error"]),
+  status: z.enum(["running", "ok", "timeout", "limit", "auth", "error"]),
   exitCode: z.number().int().nullable().optional(),
 });
 export type RunRecord = z.infer<typeof RunRecordSchema>;
