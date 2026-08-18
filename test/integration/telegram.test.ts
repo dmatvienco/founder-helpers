@@ -178,6 +178,28 @@ describe("TelegramTransport", () => {
     expect(readJson(stateFile, TransportStateSchema).lastUpdateId).toBe(mineId);
   });
 
+  it("logs a warning for a foreign chat and does not reply or call the handler (#25)", async () => {
+    const server = await startMockTelegram();
+    cleanups.push(() => server.close());
+    const stateFile = tmpStateFile();
+    const seen: string[] = [];
+    const warnings: string[] = [];
+    const t = makeTransport(server, stateFile, {
+      logger: { info: () => {}, warn: (m: string) => warnings.push(m), error: () => {} },
+    });
+    t.start(async (m) => {
+      seen.push(m.text);
+    });
+    const spamId = server.pushUpdate("spam", 999); // wrong chat
+    await until(() => warnings.length > 0, 5000, "foreign chat warning");
+    await t.stop();
+
+    expect(seen).toEqual([]);
+    expect(server.sentMessages).toEqual([]);
+    expect(warnings.some((w) => w.includes("999"))).toBe(true);
+    expect(readJson(stateFile, TransportStateSchema).lastUpdateId).toBe(spamId);
+  });
+
   it("redelivers a message whose handler failed — nothing is lost", async () => {
     const server = await startMockTelegram();
     cleanups.push(() => server.close());
