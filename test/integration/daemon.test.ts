@@ -332,6 +332,74 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
     expect(env.server.sentMessages.some((m) => m.text.includes("Skipping it"))).toBe(false);
   });
 
+  it("digest job resets authNotified on a successful run, so a later incident notifies again (#23)", async () => {
+    const env = await makeEnv();
+    const scenarios: MockScenario[] = [{ role: "pm", authFailed: true }];
+    await boot(env, scenarios, { limitRetryMs: 200 });
+    addJob(env.sp.queueFile, { kind: "digest" });
+
+    await until(
+      () => env.server.sentMessages.some((m) => m.text.includes("/login")),
+      10000,
+      "first auth notification",
+    );
+
+    // The founder ran `claude /login` — the digest succeeds and drains on its own.
+    scenarios.length = 0;
+    scenarios.push({ role: "pm" });
+    await until(
+      () => loadQueue(env.sp.queueFile).jobs.length === 0,
+      10000,
+      "digest drains after recovery",
+    );
+
+    // A fresh incident afterward must notify again — before the fix,
+    // authNotified stayed true forever because processDigest never reset it.
+    scenarios.length = 0;
+    scenarios.push({ role: "pm", authFailed: true });
+    addJob(env.sp.queueFile, { kind: "digest" });
+    await until(
+      () => env.server.sentMessages.filter((m) => m.text.includes("/login")).length === 2,
+      10000,
+      "second auth notification after reset",
+    );
+  });
+
+  it("role job resets limitNotified on a successful run, so a later incident notifies again (#23)", async () => {
+    const env = await makeEnv();
+    const scenarios: MockScenario[] = [
+      { role: "dev", stdout: "You've hit your session limit until 7pm." },
+    ];
+    await boot(env, scenarios, { limitRetryMs: 200 });
+    addJob(env.sp.queueFile, { kind: "role", role: "dev" });
+
+    await until(
+      () => env.server.sentMessages.some((m) => m.text.includes("⏳")),
+      10000,
+      "first limit notification",
+    );
+
+    // The limit window passes — the role run succeeds and drains on its own.
+    scenarios.length = 0;
+    scenarios.push({ role: "dev" });
+    await until(
+      () => loadQueue(env.sp.queueFile).jobs.length === 0,
+      10000,
+      "role job drains after recovery",
+    );
+
+    // A fresh incident afterward must notify again — before the fix,
+    // limitNotified stayed true forever because processRole never reset it.
+    scenarios.length = 0;
+    scenarios.push({ role: "dev", stdout: "You've hit your session limit until 7pm." });
+    addJob(env.sp.queueFile, { kind: "role", role: "dev" });
+    await until(
+      () => env.server.sentMessages.filter((m) => m.text.includes("⏳")).length === 2,
+      10000,
+      "second limit notification after reset",
+    );
+  });
+
   it("reply lane: 3 failed composes -> honest apology, offset advances, next message works", async () => {
     const env = await makeEnv();
     // PM scenario writes NO outbox -> every attempt "fails".

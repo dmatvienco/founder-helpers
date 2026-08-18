@@ -183,6 +183,8 @@ export class Worker {
       return;
     }
     removeJob(this.o.paths.queueFile, job.id);
+    this.limitNotified = false;
+    this.authNotified = false;
   }
 
   private async processRole(job: QueueJob): Promise<void> {
@@ -202,6 +204,8 @@ export class Worker {
       return;
     }
     removeJob(this.o.paths.queueFile, job.id);
+    this.limitNotified = false;
+    this.authNotified = false;
     await flushOutbox(this.o.transport, this.o.paths.outboxDir, this.o.logger).catch((e) => {
       this.o.logger.warn(`worker: outbox flush failed: ${e}`);
     });
