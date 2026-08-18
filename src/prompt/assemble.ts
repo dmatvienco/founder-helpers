@@ -23,6 +23,8 @@ export interface AssembleContext {
   activeWorkJob?: string | undefined;
   /** The founder's message this run must answer (reply mode). */
   inboundMessage?: string | undefined;
+  /** Local path to a photo attached to the founder's message, if any (#24). */
+  imagePath?: string | undefined;
   grants: Grant[];
 }
 
@@ -113,6 +115,9 @@ export function assemblePrompt(ctx: AssembleContext): AssembledPrompt {
       : undefined,
     ctx.inboundMessage !== undefined
       ? `- The founder just wrote (answer THIS message):\n\n"""\n${ctx.inboundMessage}\n"""`
+      : undefined,
+    ctx.imagePath !== undefined
+      ? `- The founder's message has a photo attached — read it with your file tools at: ${ctx.imagePath}`
       : undefined,
     `- Run id: ${ctx.runId}`,
   ].filter((l): l is string => Boolean(l));

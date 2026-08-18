@@ -63,6 +63,8 @@ export interface StatePaths {
   pmDir: string;
   devDir: string;
   logsDir: string;
+  /** Photos downloaded from inbound Telegram messages (#24). */
+  imagesDir: string;
 }
 
 /** Layout of a single project's state directory (always outside the repo). */
@@ -78,6 +80,7 @@ export function statePaths(projectRoot: string, opts: PathsOptions = {}): StateP
     pmDir: path.join(root, "pm"),
     devDir: path.join(root, "dev"),
     logsDir: path.join(root, "logs"),
+    imagesDir: path.join(root, "images"),
   };
 }
 

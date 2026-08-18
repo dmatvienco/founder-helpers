@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { readJson, writeJsonAtomic } from "../state/atomic.js";
 import type { Logger } from "../state/log.js";
@@ -15,6 +15,8 @@ export interface TelegramOptions {
   chatId: string | number;
   /** transport-state.json — owned by THIS code. A model never writes it. */
   stateFile: string;
+  /** Directory downloaded photos are saved to (created on demand). */
+  imagesDir: string;
   apiBase?: string;
   pollTimeoutSec?: number;
   typingIntervalMs?: number;
@@ -88,6 +90,7 @@ export class TelegramTransport implements Transport {
               chat?: { id: number | string };
               text?: string;
               caption?: string;
+              photo?: { file_id: string; width: number; height: number }[];
               date?: number;
             };
           }[];
@@ -101,7 +104,28 @@ export class TelegramTransport implements Transport {
             // A caption carries the text of a photo/video message; treat it
             // the same as message.text (#10).
             const text = typeof msg.text === "string" ? msg.text : msg.caption;
-            if (typeof text === "string") {
+            // Telegram lists variants smallest-first; the last entry is the
+            // highest resolution (#24).
+            const photo = msg.photo?.length ? msg.photo[msg.photo.length - 1] : undefined;
+            if (photo) {
+              let imagePath: string | undefined;
+              try {
+                imagePath = await this.downloadPhoto(photo.file_id, u.update_id);
+              } catch (err) {
+                const m = err instanceof Error ? err.message : String(err);
+                this.o.logger?.warn(`photo download failed for update ${u.update_id}: ${m}`);
+              }
+              // A bare photo still gets a `text` (empty string) so the
+              // not-lost/redelivery guarantee below is unaffected even when
+              // the download itself failed and only the caption survives.
+              await onMessage({
+                updateId: u.update_id,
+                chatId: msg.chat.id,
+                text: text ?? "",
+                date: msg.date ?? 0,
+                ...(imagePath ? { imagePath } : {}),
+              });
+            } else if (typeof text === "string") {
               // Sequential by design; a rejection means "not processed" and the
               // offset stays put, so the message is redelivered — never lost.
               await onMessage({
@@ -111,7 +135,7 @@ export class TelegramTransport implements Transport {
                 date: msg.date ?? 0,
               });
             } else {
-              // Bare photo/sticker/voice etc: nothing we can read. Tell the
+              // Bare sticker/voice etc: nothing we can read. Tell the
               // founder instead of silently dropping it (#10) — a rejection
               // here also keeps the offset put, so the notice is redelivered
               // on failure like any other handled message.
@@ -165,6 +189,21 @@ export class TelegramTransport implements Transport {
     this.endProgress();
     this.inFlight?.abort();
     await this.loopDone;
+  }
+
+  /** getFile + download the raw bytes, saved as `<updateId><ext>` under imagesDir. */
+  private async downloadPhoto(fileId: string, updateId: number): Promise<string> {
+    const info = (await this.call("getFile", { file_id: fileId })) as { file_path?: string };
+    const filePath = info.file_path;
+    if (!filePath) throw new Error("getFile returned no file_path");
+    const base = this.o.apiBase ?? "https://api.telegram.org";
+    const res = await fetch(`${base}/file/bot${this.o.botToken}/${filePath}`);
+    if (!res.ok) throw new Error(`file download failed: ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    mkdirSync(this.o.imagesDir, { recursive: true });
+    const dest = path.join(this.o.imagesDir, `${updateId}${path.extname(filePath) || ".jpg"}`);
+    writeFileSync(dest, buf);
+    return dest;
   }
 
   async send(text: string): Promise<void> {
@@ -260,6 +299,7 @@ export function createProjectTransport(
     botToken,
     chatId,
     stateFile: sp.transportStateFile,
+    imagesDir: sp.imagesDir,
     ...(apiBase ? { apiBase } : {}),
     ...extra,
   });
