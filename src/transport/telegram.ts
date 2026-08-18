@@ -100,7 +100,11 @@ export class TelegramTransport implements Transport {
         for (const u of data.result ?? []) {
           if (this.stopped) break;
           const msg = u.message;
-          if (msg?.chat && String(msg.chat.id) === String(this.o.chatId)) {
+          if (msg?.chat && String(msg.chat.id) !== String(this.o.chatId)) {
+            // Only the chat paired during `fh init` is trusted; everything
+            // else is ignored — but silent drops are invisible, so log it.
+            this.o.logger?.warn(`ignored message from unrecognized chat_id ${msg.chat.id}`);
+          } else if (msg?.chat) {
             // A caption carries the text of a photo/video message; treat it
             // the same as message.text (#10).
             const text = typeof msg.text === "string" ? msg.text : msg.caption;
