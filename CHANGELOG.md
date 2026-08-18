@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- Telegram transport now downloads the actual photo bytes for inbound
+  messages (not just the caption), threading a local `imagePath` through to
+  the PM prompt so the model can look at what the founder sent; a failed
+  download still delivers the caption instead of dropping the message (#24).
+- `authNotified`/`limitNotified` are reset on successful digest and role job
+  completion, so a prior auth-failure or session-limit notice doesn't
+  suppress a real new one after the team recovers (#23).
+
 ## 0.3.0
 
 - The runner detects an expired Claude OAuth session via a structured field
