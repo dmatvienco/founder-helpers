@@ -11,6 +11,8 @@ export interface InboundMessage {
   text: string;
   /** Unix seconds, as reported by the channel. */
   date: number;
+  /** Local path to a downloaded photo attached to this message, if any (#24). */
+  imagePath?: string | undefined;
 }
 
 export interface Transport {

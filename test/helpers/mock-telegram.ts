@@ -6,31 +6,53 @@ import type { AddressInfo } from "node:net";
  * transport and daemon tests run entirely against this.
  */
 
+interface PhotoVariant {
+  file_id: string;
+  width: number;
+  height: number;
+}
+
 interface StoredUpdate {
   update_id: number;
   message: {
     chat: { id: number | string; first_name?: string };
     text?: string;
     caption?: string;
+    photo?: PhotoVariant[];
     date: number;
   };
+}
+
+/** Smallest-first, like real Telegram; the largest is the last entry. */
+function photoVariants(id: number): PhotoVariant[] {
+  return [
+    { file_id: `photo-${id}-small`, width: 90, height: 90 },
+    { file_id: `photo-${id}-medium`, width: 320, height: 320 },
+    { file_id: `photo-${id}-large`, width: 1280, height: 1280 },
+  ];
 }
 
 export interface MockTelegram {
   url: string;
   /** Queue an inbound message from the founder. Returns its update_id. */
   pushUpdate(text: string, chatId?: number | string): number;
-  /** Queue an inbound photo with a caption (no message.text). Returns its update_id. */
+  /** Queue an inbound photo with a caption (message.photo + message.caption). Returns its update_id. */
   pushCaptionedPhoto(caption: string, chatId?: number | string): number;
-  /** Queue an inbound photo/sticker/voice with no text and no caption. Returns its update_id. */
+  /** Queue an inbound photo with no caption (message.photo only). Returns its update_id. */
+  pushBarePhoto(chatId?: number | string): number;
+  /** Queue an inbound sticker/voice/etc: no text, no caption, no photo. Returns its update_id. */
   pushNonTextUpdate(chatId?: number | string): number;
   sentMessages: { chat_id: unknown; text: string }[];
   /** editMessageText calls — progress-message edits, recorded separately from sends. */
   edits: { chat_id: unknown; message_id: unknown; text: string }[];
   chatActions: number;
   photos: { raw: string }[];
+  /** file_ids passed to getFile, in call order — lets tests confirm the highest-res variant was picked. */
+  getFileCalls: string[];
   /** While > 0, getUpdates responds 500 and decrements. Set to Infinity for "down". */
   failGetUpdates: number;
+  /** While > 0, getFile responds 500 and decrements — simulates a download failure. */
+  failFileDownload: number;
   close(): Promise<void>;
 }
 
@@ -48,17 +70,28 @@ export async function startMockTelegram(defaultChatId: number | string = 42): Pr
     edits: [] as { chat_id: unknown; message_id: unknown; text: string }[],
     chatActions: 0,
     photos: [] as { raw: string }[],
+    getFileCalls: [] as string[],
     failGetUpdates: 0,
+    failFileDownload: 0,
   };
 
   const server: Server = createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url ?? "/", "http://localhost");
-      const method = url.pathname.split("/").pop() ?? "";
       const json = (body: unknown, status = 200): void => {
         res.writeHead(status, { "content-type": "application/json" });
         res.end(JSON.stringify(body));
       };
+
+      // File download: /file/bot<token>/<file_path>, separate from the
+      // /bot<token>/<method> RPC namespace.
+      if (url.pathname.startsWith("/file/bot")) {
+        res.writeHead(200, { "content-type": "application/octet-stream" });
+        res.end(Buffer.from([0x89, 0x50, 0x4e, 0x47])); // fake PNG-ish bytes
+        return;
+      }
+
+      const method = url.pathname.split("/").pop() ?? "";
 
       if (method === "getMe") {
         json({ ok: true, result: { id: 1, is_bot: true, username: "mockbot" } });
@@ -104,6 +137,20 @@ export async function startMockTelegram(defaultChatId: number | string = 42): Pr
         json({ ok: true, result: { message_id: 1000 + state.photos.length } });
         return;
       }
+      if (method === "getFile") {
+        const body = JSON.parse(await readBody(req)) as { file_id: string };
+        state.getFileCalls.push(body.file_id);
+        if (state.failFileDownload > 0) {
+          state.failFileDownload--;
+          json({ ok: false, description: "mock file failure" }, 500);
+          return;
+        }
+        json({
+          ok: true,
+          result: { file_id: body.file_id, file_path: `photos/${body.file_id}.jpg` },
+        });
+        return;
+      }
       json({ ok: false, description: `mock: unknown method ${method}` }, 404);
     })().catch(() => {
       res.writeHead(500);
@@ -131,6 +178,19 @@ export async function startMockTelegram(defaultChatId: number | string = 42): Pr
         message: {
           chat: { id: chatId, first_name: "Denis" },
           caption,
+          photo: photoVariants(id),
+          date: Math.floor(Date.now() / 1000),
+        },
+      });
+      return id;
+    },
+    pushBarePhoto(chatId = defaultChatId): number {
+      const id = nextUpdateId++;
+      updates.push({
+        update_id: id,
+        message: {
+          chat: { id: chatId, first_name: "Denis" },
+          photo: photoVariants(id),
           date: Math.floor(Date.now() / 1000),
         },
       });
@@ -156,11 +216,20 @@ export async function startMockTelegram(defaultChatId: number | string = 42): Pr
     get photos() {
       return state.photos;
     },
+    get getFileCalls() {
+      return state.getFileCalls;
+    },
     get failGetUpdates() {
       return state.failGetUpdates;
     },
     set failGetUpdates(n: number) {
       state.failGetUpdates = n;
+    },
+    get failFileDownload() {
+      return state.failFileDownload;
+    },
+    set failFileDownload(n: number) {
+      state.failFileDownload = n;
     },
     close: () =>
       new Promise<void>((resolve, reject) =>

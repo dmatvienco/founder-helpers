@@ -37,6 +37,7 @@ export interface RunRoleOptions {
   base?: string | undefined;
   activeWorkJob?: string | undefined;
   inboundMessage?: string | undefined;
+  imagePath?: string | undefined;
   paths?: PathsOptions;
   /** Test hooks. */
   runner?: Runner;
@@ -95,6 +96,7 @@ export async function runRole(
     base: opts.base,
     activeWorkJob: opts.activeWorkJob,
     inboundMessage: opts.inboundMessage,
+    imagePath: opts.imagePath,
     grants: ledger.grants,
   });
 

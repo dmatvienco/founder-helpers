@@ -76,6 +76,7 @@ export class ReplyLane {
       const opts: RunRoleOptions = {
         mode: "reply",
         inboundMessage: msg.text,
+        imagePath: msg.imagePath,
         activeWorkJob: this.o.worker.busyLabel,
         paths: this.o.pathsOpts,
         onProgress: (event: ProgressEvent) => this.o.transport.updateProgress(event.text),

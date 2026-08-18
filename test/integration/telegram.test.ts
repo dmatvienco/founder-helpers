@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -19,6 +19,7 @@ function makeTransport(server: MockTelegram, stateFile: string, extra = {}): Tel
     botToken: "TEST",
     chatId: 42,
     stateFile,
+    imagesDir: tmpImagesDir(),
     apiBase: server.url,
     pollTimeoutSec: 0,
     errorSleepMs: 50,
@@ -32,6 +33,10 @@ function makeTransport(server: MockTelegram, stateFile: string, extra = {}): Tel
 
 function tmpStateFile(): string {
   return path.join(mkdtempSync(path.join(tmpdir(), "fh-tg-")), "transport-state.json");
+}
+
+function tmpImagesDir(): string {
+  return mkdtempSync(path.join(tmpdir(), "fh-tg-images-"));
 }
 
 describe("TelegramTransport", () => {
@@ -68,6 +73,69 @@ describe("TelegramTransport", () => {
     expect(seen).toEqual(["посмотри на это"]);
     await t.stop();
     expect(readJson(stateFile, TransportStateSchema).lastUpdateId).toBe(captionId);
+  });
+
+  it("delivers a photo with its caption and downloads the highest-resolution variant (#24)", async () => {
+    const server = await startMockTelegram();
+    cleanups.push(() => server.close());
+    const stateFile = tmpStateFile();
+    const seen: InboundMessage[] = [];
+    const t = makeTransport(server, stateFile);
+    t.start(async (m: InboundMessage) => {
+      seen.push(m);
+    });
+    const photoId = server.pushCaptionedPhoto("Вот что я вижу");
+    await until(() => seen.length === 1, 5000, "photo delivered");
+    await t.stop();
+
+    expect(seen[0]?.text).toBe("Вот что я вижу");
+    const imagePath = seen[0]?.imagePath;
+    expect(imagePath).toBeTruthy();
+    expect(existsSync(imagePath ?? "")).toBe(true);
+    expect(readFileSync(imagePath ?? "")).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    expect(server.getFileCalls).toEqual([`photo-${photoId}-large`]); // last variant = highest res
+    expect(readJson(stateFile, TransportStateSchema).lastUpdateId).toBe(photoId);
+  });
+
+  it("delivers a bare photo (no caption) with empty text and the downloaded image (#24)", async () => {
+    const server = await startMockTelegram();
+    cleanups.push(() => server.close());
+    const stateFile = tmpStateFile();
+    const seen: InboundMessage[] = [];
+    const t = makeTransport(server, stateFile);
+    t.start(async (m: InboundMessage) => {
+      seen.push(m);
+    });
+    const photoId = server.pushBarePhoto();
+    await until(() => seen.length === 1, 5000, "bare photo delivered");
+    await t.stop();
+
+    expect(seen[0]?.text).toBe("");
+    expect(seen[0]?.imagePath).toBeTruthy();
+    expect(readJson(stateFile, TransportStateSchema).lastUpdateId).toBe(photoId);
+  });
+
+  it("degrades to caption-only delivery on a download failure, with a logged warning (#24)", async () => {
+    const server = await startMockTelegram();
+    cleanups.push(() => server.close());
+    const stateFile = tmpStateFile();
+    const seen: InboundMessage[] = [];
+    const warnings: string[] = [];
+    server.failFileDownload = 1; // mock 5xx on the next getFile call
+    const t = makeTransport(server, stateFile, {
+      logger: { info: () => {}, warn: (m: string) => warnings.push(m), error: () => {} },
+    });
+    t.start(async (m: InboundMessage) => {
+      seen.push(m);
+    });
+    const photoId = server.pushCaptionedPhoto("не грузится");
+    await until(() => seen.length === 1, 5000, "message delivered despite download failure");
+    await t.stop();
+
+    expect(seen[0]?.text).toBe("не грузится"); // caption survives
+    expect(seen[0]?.imagePath).toBeUndefined(); // download failed, not lost
+    expect(warnings.some((w) => w.includes(String(photoId)))).toBe(true);
+    expect(readJson(stateFile, TransportStateSchema).lastUpdateId).toBe(photoId); // still advances
   });
 
   it("sends a one-time notice for a bare update with no text and no caption, and does not call the handler (#10)", async () => {

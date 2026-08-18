@@ -45,6 +45,7 @@ async function boot(
     botToken: "TEST",
     chatId: 42,
     stateFile: env.sp.transportStateFile,
+    imagesDir: env.sp.imagesDir,
     apiBase: env.server.url,
     pollTimeoutSec: 0,
     errorSleepMs: 50,

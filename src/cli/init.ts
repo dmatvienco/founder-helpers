@@ -132,7 +132,7 @@ export function runInit(projectRoot: string, opts: PathsOptions = {}): InitResul
 
   // State dir (outside the repo): structure + code-owned files.
   const sp = statePaths(projectRoot, opts);
-  for (const dir of [sp.root, sp.runsDir, sp.outboxDir, sp.pmDir, sp.devDir, sp.logsDir]) {
+  for (const dir of [sp.root, sp.runsDir, sp.outboxDir, sp.pmDir, sp.devDir, sp.logsDir, sp.imagesDir]) {
     mkdirSync(dir, { recursive: true });
   }
   if (!existsSync(sp.transportStateFile)) {
