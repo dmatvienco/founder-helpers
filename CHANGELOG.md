@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0
+
+- Reply-mode PM runs now resume the claude CLI's own session instead of
+  starting cold every time, so a founder follow-up doesn't pay for a full
+  re-verification of everything the PM already checked minutes earlier; the
+  session resets on the next morning digest or when the founder asks to
+  start fresh, which the PM now does itself via the new `fh session reset`.
+- Telegram messages from a chat_id other than the one paired at `fh init`
+  are now logged instead of silently dropped, so a stray/foreign message
+  shows up in the daemon log rather than vanishing invisibly (#25).
+
 ## 0.4.0
 
 - Telegram transport now downloads the actual photo bytes for inbound
