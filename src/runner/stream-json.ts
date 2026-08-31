@@ -8,7 +8,8 @@ export type StreamJsonEvent =
   | { kind: "tool_use"; name: string; input: unknown }
   | { kind: "text"; text: string }
   | { kind: "result"; text: string }
-  | { kind: "auth_error" };
+  | { kind: "auth_error" }
+  | { kind: "session_id"; id: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -22,6 +23,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * assistant line that carries the API error, not the final result line).
  * `thinking` blocks and anything unrecognized are intentionally dropped —
  * not meant for chat. Malformed lines yield no events instead of throwing.
+ *
+ * `session_id` rides as a top-level field on essentially every line the CLI
+ * emits (system/assistant/user/result alike, confirmed on real output logs)
+ * and stays constant for the run — extracted from whichever line has it,
+ * alongside whatever else that line yields, so reply-mode can resume it.
  */
 export function parseStreamJsonLine(line: string): StreamJsonEvent[] {
   const trimmed = line.trim();
@@ -34,16 +40,21 @@ export function parseStreamJsonLine(line: string): StreamJsonEvent[] {
   }
   if (!isRecord(parsed)) return [];
 
+  const events: StreamJsonEvent[] = [];
+  if (typeof parsed["session_id"] === "string") {
+    events.push({ kind: "session_id", id: parsed["session_id"] });
+  }
+
   // Structured, no regex: the CLI marks an auth failure with this exact
   // field rather than only prose in the result text.
   if (parsed["error"] === "authentication_failed") {
-    return [{ kind: "auth_error" }];
+    events.push({ kind: "auth_error" });
+    return events;
   }
 
   if (parsed["type"] === "assistant" && isRecord(parsed["message"])) {
     const content = parsed["message"]["content"];
-    if (!Array.isArray(content)) return [];
-    const events: StreamJsonEvent[] = [];
+    if (!Array.isArray(content)) return events;
     for (const block of content) {
       if (!isRecord(block)) continue;
       if (block["type"] === "tool_use" && typeof block["name"] === "string") {
@@ -56,10 +67,11 @@ export function parseStreamJsonLine(line: string): StreamJsonEvent[] {
   }
 
   if (parsed["type"] === "result" && typeof parsed["result"] === "string") {
-    return [{ kind: "result", text: parsed["result"] }];
+    events.push({ kind: "result", text: parsed["result"] });
+    return events;
   }
 
-  return [];
+  return events;
 }
 
 /**

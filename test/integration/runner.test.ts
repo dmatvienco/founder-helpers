@@ -11,7 +11,12 @@ import { statePaths } from "../../src/state/paths.js";
 import { isAlive } from "../../src/util/tree-kill.js";
 import { until } from "../helpers/mock-telegram.js";
 
-const fixturesBin = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "bin");
+const fixturesBin = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "fixtures",
+  "bin",
+);
 
 function makeProject(): { repo: string; stateBase: string } {
   const repo = mkdtempSync(path.join(tmpdir(), "fh-run-"));
@@ -61,7 +66,8 @@ describe("runRole with the ClaudeRunner (fake claude binaries)", () => {
     // so the output.log flush can still be in flight when run() resolves —
     // poll instead of asserting synchronously, same race class as #15.
     await until(
-      () => existsSync(outcome.outputLog) && readFileSync(outcome.outputLog, "utf8").includes("done"),
+      () =>
+        existsSync(outcome.outputLog) && readFileSync(outcome.outputLog, "utf8").includes("done"),
       2000,
       "output log flush",
     );
@@ -145,6 +151,44 @@ describe("runRole with the ClaudeRunner (fake claude binaries)", () => {
     // line2 (the Read tool_use) is written across two separate stdout
     // chunks by the fixture — this also exercises partial-line buffering.
     expect(events).toEqual(["reading src/x.ts", "running npm test"]);
+  });
+
+  it("passes --resume when a session id is given and captures the reported session_id", async () => {
+    const { repo, stateBase } = makeProject();
+    const outcome = await runRole(repo, "pm", {
+      mode: "reply",
+      resumeSessionId: "sess-prev",
+      paths: { stateBase },
+      ...fake("session.cjs"),
+    });
+    expect(outcome.record.status).toBe("ok");
+    expect(outcome.sessionId).toBe("sess-fixture-1");
+    const output = readFileSync(outcome.outputLog, "utf8");
+    expect(output).toContain("RESUME_ARG:sess-prev");
+  });
+
+  it("omits --resume when no session id is stored yet", async () => {
+    const { repo, stateBase } = makeProject();
+    const outcome = await runRole(repo, "pm", {
+      mode: "reply",
+      paths: { stateBase },
+      ...fake("session.cjs"),
+    });
+    expect(outcome.sessionId).toBe("sess-fixture-1");
+    const output = readFileSync(outcome.outputLog, "utf8");
+    expect(output).toContain("RESUME_ARG:none");
+  });
+
+  it("retries once without --resume when a resumed session errors out (stale/unknown id)", async () => {
+    const { repo, stateBase } = makeProject();
+    const outcome = await runRole(repo, "pm", {
+      mode: "reply",
+      resumeSessionId: "stale-id",
+      paths: { stateBase },
+      ...fake("session-stale.cjs"),
+    });
+    expect(outcome.record.status).toBe("ok");
+    expect(outcome.sessionId).toBe("sess-fresh-retry");
   });
 
   it("maps non-zero exit to error", async () => {

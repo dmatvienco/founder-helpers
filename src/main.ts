@@ -9,6 +9,7 @@ import { logsCommand } from "./cli/logs.js";
 import { queueCommand } from "./cli/queue.js";
 import { runCommand } from "./cli/run.js";
 import { sendCommand } from "./cli/send.js";
+import { sessionCommand } from "./cli/session.js";
 import { statusCommand } from "./cli/status.js";
 
 export interface Command {
@@ -25,6 +26,7 @@ const commands: Command[] = [
   { name: "status", summary: "Daemon, queue, last runs, grants", run: statusCommand },
   { name: "logs", summary: "Show the daemon log (-n 50, --follow)", run: logsCommand },
   { name: "send", summary: "Send text/photo to the founder's chat", run: sendCommand },
+  { name: "session", summary: "PM reply-mode session: reset", run: sessionCommand },
   { name: "grant", summary: "Standing permissions: record | list | revoke", run: grantCommand },
   { name: "doctor", summary: "Check the environment and configuration", run: doctorCommand },
 ];

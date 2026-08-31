@@ -61,6 +61,8 @@ export interface StatePaths {
   runsDir: string;
   outboxDir: string;
   pmDir: string;
+  /** PM reply-mode session continuity (resumed claude session id). */
+  pmSessionFile: string;
   devDir: string;
   logsDir: string;
   /** Photos downloaded from inbound Telegram messages (#24). */
@@ -78,6 +80,7 @@ export function statePaths(projectRoot: string, opts: PathsOptions = {}): StateP
     runsDir: path.join(root, "runs"),
     outboxDir: path.join(root, "outbox"),
     pmDir: path.join(root, "pm"),
+    pmSessionFile: path.join(root, "pm", "session.json"),
     devDir: path.join(root, "dev"),
     logsDir: path.join(root, "logs"),
     imagesDir: path.join(root, "images"),

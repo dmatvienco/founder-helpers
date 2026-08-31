@@ -5,7 +5,9 @@ describe("parseStreamJsonLine", () => {
   it("extracts a tool_use block as a progress event", () => {
     const line = JSON.stringify({
       type: "assistant",
-      message: { content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: "src/x.ts" } }] },
+      message: {
+        content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: "src/x.ts" } }],
+      },
     });
     expect(parseStreamJsonLine(line)).toEqual([
       { kind: "tool_use", name: "Read", input: { file_path: "src/x.ts" } },
@@ -45,7 +47,12 @@ describe("parseStreamJsonLine", () => {
   });
 
   it("extracts the result text from a result line", () => {
-    const line = JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "done" });
+    const line = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "done",
+    });
     expect(parseStreamJsonLine(line)).toEqual([{ kind: "result", text: "done" }]);
   });
 
@@ -54,7 +61,14 @@ describe("parseStreamJsonLine", () => {
     // line, sibling to "message", not inside message.content.
     const line = JSON.stringify({
       type: "assistant",
-      message: { content: [{ type: "text", text: "Failed to authenticate: OAuth session expired and could not be refreshed" }] },
+      message: {
+        content: [
+          {
+            type: "text",
+            text: "Failed to authenticate: OAuth session expired and could not be refreshed",
+          },
+        ],
+      },
       error: "authentication_failed",
       is_api_error_message: true,
     });
@@ -62,14 +76,52 @@ describe("parseStreamJsonLine", () => {
   });
 
   it("does not misfire on an unrelated error value", () => {
-    const line = JSON.stringify({ type: "assistant", message: { content: [] }, error: "rate_limited" });
+    const line = JSON.stringify({
+      type: "assistant",
+      message: { content: [] },
+      error: "rate_limited",
+    });
     expect(parseStreamJsonLine(line)).toEqual([]);
+  });
+
+  it("extracts session_id from a system/init line, alongside no other event", () => {
+    const line = JSON.stringify({ type: "system", subtype: "init", session_id: "sess-abc" });
+    expect(parseStreamJsonLine(line)).toEqual([{ kind: "session_id", id: "sess-abc" }]);
+  });
+
+  it("extracts session_id merged with the tool_use/result it rides alongside", () => {
+    const toolLine = JSON.stringify({
+      type: "assistant",
+      session_id: "sess-abc",
+      message: {
+        content: [{ type: "tool_use", id: "t1", name: "Read", input: { file_path: "x.ts" } }],
+      },
+    });
+    expect(parseStreamJsonLine(toolLine)).toEqual([
+      { kind: "session_id", id: "sess-abc" },
+      { kind: "tool_use", name: "Read", input: { file_path: "x.ts" } },
+    ]);
+
+    const resultLine = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: "done",
+      session_id: "sess-abc",
+    });
+    expect(parseStreamJsonLine(resultLine)).toEqual([
+      { kind: "session_id", id: "sess-abc" },
+      { kind: "result", text: "done" },
+    ]);
   });
 
   it("ignores user/tool_result and system lines", () => {
     expect(
       parseStreamJsonLine(
-        JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1" }] } }),
+        JSON.stringify({
+          type: "user",
+          message: { content: [{ type: "tool_result", tool_use_id: "t1" }] },
+        }),
       ),
     ).toEqual([]);
     expect(parseStreamJsonLine(JSON.stringify({ type: "system", subtype: "init" }))).toEqual([]);

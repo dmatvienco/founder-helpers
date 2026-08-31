@@ -7,6 +7,7 @@ import { runInit } from "../../src/cli/init.js";
 import { startDaemon, type DaemonHandle, type DaemonOptions } from "../../src/core/daemon.js";
 import { TelegramTransport } from "../../src/transport/telegram.js";
 import { addJob, loadQueue } from "../../src/core/queue.js";
+import { loadPmSessionId, resetPmSession, savePmSessionId } from "../../src/core/pm-session.js";
 import { MockRunner, type MockScenario } from "../../src/runner/mock-runner.js";
 import { statePaths } from "../../src/state/paths.js";
 import { saveSecrets } from "../../src/state/secrets.js";
@@ -93,9 +94,7 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
       },
       {
         role: "reviewer",
-        writeFiles: [
-          { path: "dev/review-issue7.md", content: "✅ можно мержить\n\nвсё чисто" },
-        ],
+        writeFiles: [{ path: "dev/review-issue7.md", content: "✅ можно мержить\n\nвсё чисто" }],
       },
     ]);
 
@@ -183,6 +182,64 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
     expect(env.server.edits.every((e) => !e.text.includes("готово"))).toBe(true);
   });
 
+  it("reply lane resumes the PM's saved session id and persists the new one after each reply (#session)", async () => {
+    const env = await makeEnv();
+    savePmSessionId(env.sp.pmSessionFile, "sess-old");
+    const runner = new MockRunner(
+      [
+        {
+          role: "pm",
+          writeFiles: [{ path: "outbox/reply.txt", content: "ответ" }],
+          sessionId: "sess-new",
+        },
+      ],
+      env.sp.root,
+    );
+    await boot(env, [], { runner });
+
+    env.server.pushUpdate("привет");
+    await until(
+      () => env.server.sentMessages.some((m) => m.text.includes("ответ")),
+      10000,
+      "reply",
+    );
+
+    expect(runner.calls[0]?.resumeSessionId).toBe("sess-old");
+    expect(loadPmSessionId(env.sp.pmSessionFile)).toBe("sess-new");
+  });
+
+  it("an `fh session reset` mid-run is honored, not immediately undone by the post-run save (#session)", async () => {
+    const env = await makeEnv();
+    savePmSessionId(env.sp.pmSessionFile, "sess-old");
+    const runner = new MockRunner(
+      [
+        {
+          role: "pm",
+          delayMs: 80,
+          writeFiles: [{ path: "outbox/reply.txt", content: "начинаем с чистого листа" }],
+          // The CLI still reports the session it was resumed on — the reset
+          // happened as a *side effect* mid-run (the PM's own `fh session
+          // reset` Bash call), not as a different reported session id.
+          sessionId: "sess-old",
+        },
+      ],
+      env.sp.root,
+    );
+    await boot(env, [], { runner });
+
+    // Fires mid-run, simulating the PM's own `fh session reset` Bash call.
+    setTimeout(() => resetPmSession(env.sp.pmSessionFile), 20);
+
+    env.server.pushUpdate("забудь всё");
+    await until(
+      () => env.server.sentMessages.some((m) => m.text.includes("начинаем с чистого листа")),
+      10000,
+      "reply",
+    );
+
+    expect(loadPmSessionId(env.sp.pmSessionFile)).toBeUndefined();
+  });
+
   it("second daemon instance dies loudly on the lock", async () => {
     const env = await makeEnv();
     await boot(env, []);
@@ -253,9 +310,7 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
 
   it("session limit pauses the job with retryAt and notifies once", async () => {
     const env = await makeEnv();
-    await boot(env, [
-      { role: "dev", stdout: "You've hit your session limit until 7pm." },
-    ]);
+    await boot(env, [{ role: "dev", stdout: "You've hit your session limit until 7pm." }]);
     addJob(env.sp.queueFile, { kind: "issue", issue: 5, base: "main" });
 
     await until(
@@ -321,7 +376,10 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
 
   it("reply lane: auth-expired session sends one progress line and one /login notice, never burns the 3-strike ladder (#21)", async () => {
     const env = await makeEnv();
-    await boot(env, [{ role: "pm", authFailed: true }], { replyMaxAttempts: 3, limitRetryMs: 5 * 60_000 });
+    await boot(env, [{ role: "pm", authFailed: true }], {
+      replyMaxAttempts: 3,
+      limitRetryMs: 5 * 60_000,
+    });
 
     env.server.pushUpdate("привет");
     await until(
@@ -412,8 +470,6 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
       15000,
       "honest apology",
     );
-    expect(
-      env.server.sentMessages.filter((m) => m.text.includes("Skipping it")).length,
-    ).toBe(1);
+    expect(env.server.sentMessages.filter((m) => m.text.includes("Skipping it")).length).toBe(1);
   });
 });

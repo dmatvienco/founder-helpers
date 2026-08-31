@@ -112,6 +112,18 @@ export const KNOWN_SCOPES = [
   "spend.money",
 ] as const;
 
+/**
+ * PM reply-mode conversation continuity: the claude CLI's own session id,
+ * resumed across founder messages until the daily digest or an explicit
+ * "start fresh" resets it — written by ReplyLane/daemon code ONLY, never
+ * hand-edited (the model triggers a reset via `fh session reset`).
+ */
+export const PmSessionSchema = z.object({
+  sessionId: z.string().min(1),
+  updatedAt: z.string(),
+});
+export type PmSession = z.infer<typeof PmSessionSchema>;
+
 /** One headless run's record: state/runs/<id>/record.json */
 export const RunRecordSchema = z.object({
   id: z.string(),

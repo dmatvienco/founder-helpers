@@ -22,6 +22,17 @@ const TAIL_LIMIT = 64 * 1024; // keep the last 64KB of extracted text for status
  */
 export class ClaudeRunner implements Runner {
   async run(spec: RunSpec): Promise<RunResult> {
+    const result = await this.runOnce(spec);
+    // A stale/unknown resume id must never permanently break replies — retry
+    // once as a fresh session rather than surface a resume-only failure.
+    if (spec.resumeSessionId && result.status === "error") {
+      const { resumeSessionId: _drop, ...rest } = spec;
+      return this.runOnce(rest);
+    }
+    return result;
+  }
+
+  private async runOnce(spec: RunSpec): Promise<RunResult> {
     mkdirSync(spec.runDir, { recursive: true });
     const outputLog = path.join(spec.runDir, "output.log");
     const stream = createWriteStream(outputLog, { flags: "a" });
@@ -36,6 +47,7 @@ export class ClaudeRunner implements Runner {
       "stream-json",
       "--verbose", // the CLI requires this when --print is combined with stream-json output
     ];
+    if (spec.resumeSessionId) args.push("--resume", spec.resumeSessionId);
     if (spec.permissionMode === "bypass") {
       args.push("--dangerously-skip-permissions");
     } else {
@@ -55,6 +67,7 @@ export class ClaudeRunner implements Runner {
       textTail = (textTail + text).slice(-TAIL_LIMIT);
     };
     let authFailed = false;
+    let sessionId: string | undefined;
 
     const handleLine = (line: string): void => {
       for (const event of parseStreamJsonLine(line)) {
@@ -62,6 +75,8 @@ export class ClaudeRunner implements Runner {
           spec.onProgress?.({ text: describeToolUse(event.name, event.input) });
         } else if (event.kind === "auth_error") {
           authFailed = true;
+        } else if (event.kind === "session_id") {
+          sessionId = event.id;
         } else {
           appendTail(event.text);
         }
@@ -116,6 +131,12 @@ export class ClaudeRunner implements Runner {
             ? "ok"
             : "error";
 
-    return { status, exitCode, outputLog, durationMs: Date.now() - started };
+    return {
+      status,
+      exitCode,
+      outputLog,
+      durationMs: Date.now() - started,
+      ...(sessionId ? { sessionId } : {}),
+    };
   }
 }

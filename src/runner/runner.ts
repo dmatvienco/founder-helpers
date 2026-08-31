@@ -15,6 +15,8 @@ export interface RunSpec {
   permissionMode: "allowlist" | "acceptEdits" | "bypass";
   /** Claude Code settings file (allowlist/acceptEdits modes). */
   settingsFile?: string;
+  /** Reply-mode only: resume this claude session instead of starting fresh. */
+  resumeSessionId?: string;
   /** Extra directories the run may touch (state dir etc.). */
   addDirs: string[];
   /** Override the claude binary (tests use a node script). */
@@ -36,6 +38,8 @@ export interface RunResult {
   /** Path to the captured stdout+stderr log. */
   outputLog: string;
   durationMs: number;
+  /** The claude session id this run used (new or resumed), for the caller to persist. */
+  sessionId?: string;
 }
 
 export interface Runner {

@@ -25,7 +25,7 @@ wrong, rewrite them. The founder's word in chat outranks any line of this file.
 When the founder clearly says "do it and don't ask again" about something:
 
 1. In that same run: `fh grant record --scope <scope> --quote "<their EXACT words>"
-   [--conditions "..."]`. Known scopes the code enforces:
+[--conditions "..."]`. Known scopes the code enforces:
    `git.merge_integration_branch`, `git.push_integration_branch`,
    `runner.bypass_permissions`, `deploy.production`, `spend.money`.
    Anything else is a freeform scope binding through your prompt.
@@ -67,7 +67,17 @@ whatever you can still do.
 
 ## Mode: reply (a founder message just arrived)
 
+Reply mode resumes your own previous conversation with the founder (same
+claude session, until the next morning digest or an explicit reset) — you
+genuinely remember what you already checked earlier today, so don't
+re-verify facts you already have unless something suggests they're stale.
+
 The message is in the Run context. Answer it for real:
+
+- The founder clearly asks to start fresh / forget context ("новая сессия",
+  "забудь", "forget this", ...) → run `fh session reset` in THIS run before
+  answering. The reset takes effect on the founder's NEXT message, not this
+  one — so still answer their current message normally first.
 
 - "yes N / no N" (in the founder's language — «да 5», "oui 2", any clear
   yes/no plus the number counts) → update `pm/proposals.json`; for an approved work item make

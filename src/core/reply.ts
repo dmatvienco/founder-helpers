@@ -1,12 +1,14 @@
 import { runRole, type RunRoleOptions } from "../cli/run.js";
 import type { Logger } from "../state/log.js";
 import type { PathsOptions, StatePaths } from "../state/paths.js";
+import { existsSync } from "node:fs";
 import { writeJsonAtomic } from "../state/atomic.js";
 import { z } from "zod";
 import type { ProgressEvent, Runner } from "../runner/runner.js";
 import { flushOutbox } from "../transport/outbox.js";
 import type { InboundMessage, Transport } from "../transport/transport.js";
 import type { Worker } from "./worker.js";
+import { loadPmSessionId, savePmSessionId } from "./pm-session.js";
 import path from "node:path";
 
 const InboxSchema = z.object({
@@ -73,6 +75,11 @@ export class ReplyLane {
         InboxSchema,
       );
 
+      const resumeSessionId = loadPmSessionId(this.o.paths.pmSessionFile);
+      // The PM can call `fh session reset` mid-run (founder asked to start
+      // fresh) — track this so a post-run save below doesn't immediately
+      // undo it by re-writing the very session id that was just cleared.
+      const hadSessionBefore = existsSync(this.o.paths.pmSessionFile);
       const opts: RunRoleOptions = {
         mode: "reply",
         inboundMessage: msg.text,
@@ -81,8 +88,18 @@ export class ReplyLane {
         paths: this.o.pathsOpts,
         onProgress: (event: ProgressEvent) => this.o.transport.updateProgress(event.text),
         ...(this.o.runner ? { runner: this.o.runner } : {}),
+        ...(resumeSessionId ? { resumeSessionId } : {}),
       };
       const res = await runRole(this.o.projectRoot, "pm", opts);
+      // Persist whatever session this run ended up on (new or resumed) so the
+      // founder's NEXT message continues the same conversation — regardless
+      // of outcome status, since even a paused run keeps its context. Unless
+      // the PM (or the digest cron) reset it mid-run, in which case honor
+      // that reset instead of silently reinstating the cleared id.
+      const resetMidRun = hadSessionBefore && !existsSync(this.o.paths.pmSessionFile);
+      if (res.sessionId && !resetMidRun) {
+        savePmSessionId(this.o.paths.pmSessionFile, res.sessionId);
+      }
 
       if (res.record.status === "auth") {
         const wait = this.o.limitRetryMs ?? 15 * 60_000;

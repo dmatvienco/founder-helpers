@@ -38,6 +38,8 @@ export interface RunRoleOptions {
   activeWorkJob?: string | undefined;
   inboundMessage?: string | undefined;
   imagePath?: string | undefined;
+  /** Reply-mode only: resume this claude session instead of starting fresh. */
+  resumeSessionId?: string | undefined;
   paths?: PathsOptions;
   /** Test hooks. */
   runner?: Runner;
@@ -51,6 +53,8 @@ export interface RunRoleOutcome {
   record: RunRecord;
   runDir: string;
   outputLog: string;
+  /** The claude session id this run used, if any — reply mode persists it for the next turn. */
+  sessionId?: string;
 }
 
 function newRunId(role: string): string {
@@ -118,6 +122,7 @@ export async function runRole(
     ...(opts.bin ? { bin: opts.bin } : {}),
     ...(opts.binArgs ? { binArgs: opts.binArgs } : {}),
     ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
+    ...(opts.resumeSessionId ? { resumeSessionId: opts.resumeSessionId } : {}),
   });
 
   const record: RunRecord = RunRecordSchema.parse({
@@ -129,7 +134,12 @@ export async function runRole(
     exitCode: result.exitCode,
   });
   writeJsonAtomic(path.join(runDir, "record.json"), record, RunRecordSchema);
-  return { record, runDir, outputLog: result.outputLog };
+  return {
+    record,
+    runDir,
+    outputLog: result.outputLog,
+    ...(result.sessionId ? { sessionId: result.sessionId } : {}),
+  };
 }
 
 export async function runCommand(args: string[]): Promise<number> {

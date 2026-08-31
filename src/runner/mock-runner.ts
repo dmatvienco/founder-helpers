@@ -20,15 +20,21 @@ export interface MockScenario {
   authFailed?: boolean;
   /** Scripted progress lines, replayed through onProgress (each preceded by its own delay). */
   progressEvents?: { text: string; delayMs?: number }[];
+  /** Session id this "run" pretends the CLI reported, for reply-mode continuity tests. */
+  sessionId?: string;
 }
 
 export class MockRunner implements Runner {
+  /** Every spec this runner was asked to execute, in order — for asserting on resumeSessionId etc. */
+  readonly calls: RunSpec[] = [];
+
   constructor(
     private scenarios: MockScenario[],
     private baseDir: string,
   ) {}
 
   async run(spec: RunSpec): Promise<RunResult> {
+    this.calls.push(spec);
     mkdirSync(spec.runDir, { recursive: true });
     const outputLog = path.join(spec.runDir, "output.log");
     const started = Date.now();
@@ -74,6 +80,12 @@ export class MockRunner implements Runner {
       : exitCode === 0
         ? "ok"
         : "error";
-    return { status, exitCode, outputLog, durationMs: Date.now() - started };
+    return {
+      status,
+      exitCode,
+      outputLog,
+      durationMs: Date.now() - started,
+      ...(scenario.sessionId ? { sessionId: scenario.sessionId } : {}),
+    };
   }
 }

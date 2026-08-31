@@ -11,6 +11,7 @@ import type { Runner } from "../runner/runner.js";
 import { headCommit } from "../util/git.js";
 import { heartbeatStatus } from "../util/tree-kill.js";
 import { addJob } from "./queue.js";
+import { resetPmSession } from "./pm-session.js";
 import { ReplyLane } from "./reply.js";
 import { Worker } from "./worker.js";
 
@@ -120,6 +121,9 @@ export async function startDaemon(
     cron = new Cron(config.digest.cron, () => {
       logger.info("cron: enqueueing digest");
       addJob(sp.queueFile, { kind: "digest" });
+      // The digest is the day's natural boundary: the founder's next reply
+      // starts a clean PM conversation instead of resuming yesterday's.
+      resetPmSession(sp.pmSessionFile);
     });
     logger.info(`cron: digest scheduled (${config.digest.cron})`);
   }
