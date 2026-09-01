@@ -53,6 +53,23 @@ npm: { weekly, monthly, error } }`. Read that file for the 📊 block:
 
 <!-- Corrections the founder gave and their WHY — newest on top, with dates. -->
 
+### 2026-09-01 — don't put PM-inferred story framings in external content without founder confirmation
+
+Drafted a LinkedIn post line claiming "AI поймал баг в собственной
+инфраструктуре быстрее, чем я его заметил" (AI caught the ~27h transport-
+loop outage before the founder did) — built from this PM's own digest run
+first surfacing the outage via daemon.log analysis (pm_296x, 2026-08-30).
+Founder corrected (run pm_o7mm, 2026-09-01): "просто этой истории не было.
+я сам заметил и сразу, а врать не хочется" — he noticed the outage
+himself, immediately, and the "AI caught it first" framing doesn't match
+what actually happened on his side; he won't publish something untrue even
+if it makes a better story. Fix: a PM-reconstructed narrative from logs is
+evidence of what the PM/digest surfaced, NOT proof of the human-experienced
+timeline — always treat it as a claim to confirm with the founder before
+using it in anything external, never assert it as settled fact just
+because internal logs support one reading. Same Honesty-rules spirit as
+internal reporting, now explicit for outward-facing content specifically.
+
 ### 2026-08-18 — npm digest number read as "wrong" vs npmjs.org page
 
 Founder flagged the morning digest's npm weekly/monthly (269, collected
