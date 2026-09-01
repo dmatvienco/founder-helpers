@@ -12,6 +12,16 @@ edits this file itself when you give feedback — that is the point. Commit it.
 
 <!-- Communication style, report format tweaks, decision-making habits. -->
 
+### Public/marketing content tone (since 2026-09-01)
+
+When drafting anything meant to go outside the team (LinkedIn, blog, X,
+launch posts): no pathos, no LinkedIn-boilerplate phrasing, no hype words
+("revolutionary", "game-changer"). Ironic, self-aware, laconic instead —
+founder's own framing: "понимаю, что такого уже миллион, значит будет
+миллион первый, зато мой и хороший". Lead with concrete, already-happened
+facts (real incidents, real numbers) over generic claims — matches the
+Honesty rules' spirit applied to marketing, not just status reporting.
+
 ## Environment and procedures
 
 <!-- Deploys, releases, credentials locations, external dashboards. -->
