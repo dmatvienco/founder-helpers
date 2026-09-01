@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0
+
+- A resumed reply-mode turn now skips re-sending the full role
+  template/profile/overlay/grants block when nothing watched has changed
+  since the last turn in the same conversation — the resumed session
+  already has it. Falls back to the full prompt automatically on session
+  start or the moment any of those files' mtime changes, so an external
+  edit (founder editing profile.md, a grant recorded/revoked outside the
+  conversation) is never silently missed.
+
 ## 0.5.0
 
 - Reply-mode PM runs now resume the claude CLI's own session instead of
