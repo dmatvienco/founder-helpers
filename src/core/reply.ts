@@ -8,8 +8,28 @@ import type { ProgressEvent, Runner } from "../runner/runner.js";
 import { flushOutbox } from "../transport/outbox.js";
 import type { InboundMessage, Transport } from "../transport/transport.js";
 import type { Worker } from "./worker.js";
-import { loadPmSessionId, savePmSessionId } from "./pm-session.js";
+import {
+  loadPmSession,
+  mtimesUnchanged,
+  savePmSessionId,
+  watchedFileMtimes,
+} from "./pm-session.js";
+import { profileFile, roleOverlayFile, roleTemplateFile } from "../prompt/assemble.js";
+import { ledgerFile } from "../permissions/ledger.js";
 import path from "node:path";
+
+const PM_ROLE = "pm";
+
+/** Files the PM's role prompt embeds — watched so a resumed turn can skip re-sending them when unchanged. */
+function watchedPromptFiles(projectRoot: string): Record<string, string> {
+  return {
+    template: roleTemplateFile(PM_ROLE),
+    overlay: roleOverlayFile(projectRoot, PM_ROLE),
+    profile: profileFile(projectRoot),
+    grants: ledgerFile(projectRoot),
+    config: path.join(projectRoot, ".founder-helpers", "config.json"),
+  };
+}
 
 const InboxSchema = z.object({
   updateId: z.number(),
@@ -75,7 +95,18 @@ export class ReplyLane {
         InboxSchema,
       );
 
-      const resumeSessionId = loadPmSessionId(this.o.paths.pmSessionFile);
+      const session = loadPmSession(this.o.paths.pmSessionFile);
+      const resumeSessionId = session?.sessionId;
+      const watchedFiles = watchedPromptFiles(this.o.projectRoot);
+      const beforeMtimes = watchedFileMtimes(watchedFiles);
+      // Only skip the full role/profile/overlay/grants block when BOTH a
+      // session is actually being resumed (a fresh session has no prior turn
+      // to fall back on) AND nothing watched changed since the last turn —
+      // an external edit (founder editing profile.md, a grant recorded or
+      // revoked outside this conversation, ...) forces a full resend so the
+      // resumed session never silently runs on stale instructions.
+      const trimmed =
+        Boolean(resumeSessionId) && mtimesUnchanged(beforeMtimes, session?.watchedMtimes);
       // The PM can call `fh session reset` mid-run (founder asked to start
       // fresh) — track this so a post-run save below doesn't immediately
       // undo it by re-writing the very session id that was just cleared.
@@ -89,16 +120,19 @@ export class ReplyLane {
         onProgress: (event: ProgressEvent) => this.o.transport.updateProgress(event.text),
         ...(this.o.runner ? { runner: this.o.runner } : {}),
         ...(resumeSessionId ? { resumeSessionId } : {}),
+        ...(trimmed ? { trimmed } : {}),
       };
       const res = await runRole(this.o.projectRoot, "pm", opts);
       // Persist whatever session this run ended up on (new or resumed) so the
       // founder's NEXT message continues the same conversation — regardless
       // of outcome status, since even a paused run keeps its context. Unless
       // the PM (or the digest cron) reset it mid-run, in which case honor
-      // that reset instead of silently reinstating the cleared id.
+      // that reset instead of silently reinstating the cleared id. mtimes are
+      // recorded fresh (post-run), so an edit the PM itself just made this
+      // turn is already reflected for the next comparison.
       const resetMidRun = hadSessionBefore && !existsSync(this.o.paths.pmSessionFile);
       if (res.sessionId && !resetMidRun) {
-        savePmSessionId(this.o.paths.pmSessionFile, res.sessionId);
+        savePmSessionId(this.o.paths.pmSessionFile, res.sessionId, watchedFileMtimes(watchedFiles));
       }
 
       if (res.record.status === "auth") {

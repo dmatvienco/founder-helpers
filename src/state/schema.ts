@@ -121,6 +121,14 @@ export const KNOWN_SCOPES = [
 export const PmSessionSchema = z.object({
   sessionId: z.string().min(1),
   updatedAt: z.string(),
+  /**
+   * mtimes (ms) of the files the role prompt embeds, recorded right after the
+   * run that produced them — lets the next turn detect an external edit
+   * (founder editing profile.md, a grant recorded/revoked outside this
+   * conversation, ...) and re-send the full prompt only when something
+   * actually changed, instead of every single turn.
+   */
+  watchedMtimes: z.record(z.string(), z.number()).default({}),
 });
 export type PmSession = z.infer<typeof PmSessionSchema>;
 

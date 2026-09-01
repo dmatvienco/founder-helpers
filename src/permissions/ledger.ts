@@ -5,7 +5,7 @@ import { writeClaudeSettings } from "./settings.js";
 import { statePaths, type PathsOptions } from "../state/paths.js";
 import { ProjectConfigSchema, type ProjectConfig } from "../state/schema.js";
 
-function ledgerFile(projectRoot: string): string {
+export function ledgerFile(projectRoot: string): string {
   return path.join(projectRoot, ".founder-helpers", "permissions.json");
 }
 

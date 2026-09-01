@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,7 +7,12 @@ import { runInit } from "../../src/cli/init.js";
 import { startDaemon, type DaemonHandle, type DaemonOptions } from "../../src/core/daemon.js";
 import { TelegramTransport } from "../../src/transport/telegram.js";
 import { addJob, loadQueue } from "../../src/core/queue.js";
-import { loadPmSessionId, resetPmSession, savePmSessionId } from "../../src/core/pm-session.js";
+import {
+  loadPmSession,
+  loadPmSessionId,
+  resetPmSession,
+  savePmSessionId,
+} from "../../src/core/pm-session.js";
 import { MockRunner, type MockScenario } from "../../src/runner/mock-runner.js";
 import { statePaths } from "../../src/state/paths.js";
 import { saveSecrets } from "../../src/state/secrets.js";
@@ -238,6 +243,63 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
     );
 
     expect(loadPmSessionId(env.sp.pmSessionFile)).toBeUndefined();
+  });
+
+  it("sends the full prompt on session start and after an external edit, trimmed otherwise (#trim)", async () => {
+    const env = await makeEnv();
+    const runner = new MockRunner(
+      [
+        {
+          role: "pm",
+          writeFiles: [{ path: "outbox/reply.txt", content: "ответ" }],
+          sessionId: "sess-trim",
+        },
+      ],
+      env.sp.root,
+    );
+    await boot(env, [], { runner });
+    const sessionFile = env.sp.pmSessionFile;
+
+    // Turn 1: no session yet — must be full.
+    env.server.pushUpdate("привет 1");
+    await until(() => loadPmSession(sessionFile) !== undefined, 10000, "turn 1 session saved");
+    let session = loadPmSession(sessionFile);
+    expect(runner.calls).toHaveLength(1);
+    expect(readFileSync(path.join(runner.calls[0]!.runDir, "prompt.md"), "utf8")).toContain(
+      "Project profile",
+    );
+
+    // Turn 2: same session, nothing on disk changed — must be trimmed.
+    env.server.pushUpdate("привет 2");
+    await until(
+      () => loadPmSession(sessionFile)?.updatedAt !== session?.updatedAt,
+      10000,
+      "turn 2 session saved",
+    );
+    session = loadPmSession(sessionFile);
+    expect(runner.calls).toHaveLength(2);
+    const prompt2 = readFileSync(path.join(runner.calls[1]!.runDir, "prompt.md"), "utf8");
+    expect(prompt2).not.toContain("Project profile");
+    expect(prompt2).toContain("Run context");
+
+    // An external edit between turns — must force a full resend on turn 3,
+    // not just silently keep trusting the resumed session's stale memory.
+    utimesSync(
+      path.join(env.repo, ".founder-helpers", "profile.md"),
+      new Date(),
+      new Date(Date.now() + 5000),
+    );
+
+    env.server.pushUpdate("привет 3");
+    await until(
+      () => loadPmSession(sessionFile)?.updatedAt !== session?.updatedAt,
+      10000,
+      "turn 3 session saved",
+    );
+    expect(runner.calls).toHaveLength(3);
+    expect(readFileSync(path.join(runner.calls[2]!.runDir, "prompt.md"), "utf8")).toContain(
+      "Project profile",
+    );
   });
 
   it("second daemon instance dies loudly on the lock", async () => {

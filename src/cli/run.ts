@@ -40,6 +40,8 @@ export interface RunRoleOptions {
   imagePath?: string | undefined;
   /** Reply-mode only: resume this claude session instead of starting fresh. */
   resumeSessionId?: string | undefined;
+  /** Reply-mode only: skip re-sending role/profile/overlay/grants — the resumed session already has them. */
+  trimmed?: boolean | undefined;
   paths?: PathsOptions;
   /** Test hooks. */
   runner?: Runner;
@@ -102,6 +104,7 @@ export async function runRole(
     inboundMessage: opts.inboundMessage,
     imagePath: opts.imagePath,
     grants: ledger.grants,
+    ...(opts.trimmed ? { trimmed: opts.trimmed } : {}),
   });
 
   const timeoutMin = config.roles[role]?.timeoutMin ?? 60;

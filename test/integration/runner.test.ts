@@ -191,6 +191,23 @@ describe("runRole with the ClaudeRunner (fake claude binaries)", () => {
     expect(outcome.sessionId).toBe("sess-fresh-retry");
   });
 
+  it("trimmed mode sends only Run context, skipping the full role/profile/overlay/grants block", async () => {
+    const { repo, stateBase } = makeProject();
+    const outcome = await runRole(repo, "pm", {
+      mode: "reply",
+      trimmed: true,
+      paths: { stateBase },
+      ...fake("ok.cjs"),
+    });
+    expect(outcome.record.status).toBe("ok");
+    const prompt = readFileSync(path.join(outcome.runDir, "prompt.md"), "utf8");
+    expect(prompt).not.toContain("# Role: PM"); // shipped template
+    expect(prompt).not.toContain("Project profile");
+    expect(prompt).not.toContain("Active standing grants");
+    expect(prompt).toContain("Run context");
+    expect(prompt).toContain("- Mode: reply");
+  });
+
   it("maps non-zero exit to error", async () => {
     const { repo, stateBase } = makeProject();
     const outcome = await runRole(repo, "pm", {

@@ -1,8 +1,15 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadPmSessionId, resetPmSession, savePmSessionId } from "../../src/core/pm-session.js";
+import {
+  loadPmSession,
+  loadPmSessionId,
+  mtimesUnchanged,
+  resetPmSession,
+  savePmSessionId,
+  watchedFileMtimes,
+} from "../../src/core/pm-session.js";
 
 function tmpFile(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "fh-pmsession-"));
@@ -44,5 +51,47 @@ describe("pm-session", () => {
 
     // Calling it again with nothing left on disk must not throw.
     expect(() => resetPmSession(file)).not.toThrow();
+  });
+
+  it("round-trips watchedMtimes alongside the session id", () => {
+    const file = tmpFile();
+    savePmSessionId(file, "sess-1", { a: 111, b: 222 });
+    expect(loadPmSession(file)?.watchedMtimes).toEqual({ a: 111, b: 222 });
+
+    // Omitting the third arg defaults to an empty map, not the previous one.
+    savePmSessionId(file, "sess-2");
+    expect(loadPmSession(file)?.watchedMtimes).toEqual({});
+  });
+});
+
+describe("watchedFileMtimes", () => {
+  it("reports 0 for a missing file instead of throwing", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "fh-watchfiles-"));
+    const missing = path.join(dir, "nope.md");
+    expect(watchedFileMtimes({ x: missing })).toEqual({ x: 0 });
+  });
+
+  it("reports the file's real mtime, keyed by the caller's label", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "fh-watchfiles-"));
+    const file = path.join(dir, "a.md");
+    writeFileSync(file, "hi", "utf8");
+    const stamp = new Date(2026, 0, 1, 12, 0, 0);
+    utimesSync(file, stamp, stamp);
+    expect(watchedFileMtimes({ a: file }).a).toBeCloseTo(stamp.getTime(), -2);
+  });
+});
+
+describe("mtimesUnchanged", () => {
+  it("is false when nothing was stored yet (first turn of a session)", () => {
+    expect(mtimesUnchanged({ a: 1 }, undefined)).toBe(false);
+  });
+
+  it("is true only when every watched mtime matches exactly", () => {
+    expect(mtimesUnchanged({ a: 1, b: 2 }, { a: 1, b: 2 })).toBe(true);
+    expect(mtimesUnchanged({ a: 1, b: 2 }, { a: 1, b: 3 })).toBe(false);
+  });
+
+  it("is false when the watched-file set itself changed (e.g. a role added/removed)", () => {
+    expect(mtimesUnchanged({ a: 1, b: 2 }, { a: 1 })).toBe(false);
   });
 });

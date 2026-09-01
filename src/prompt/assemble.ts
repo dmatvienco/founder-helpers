@@ -9,6 +9,21 @@ function templatesDir(): string {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "templates");
 }
 
+/** Shipped role template path — also used by ReplyLane to watch it for updates (e.g. `npm update -g`). */
+export function roleTemplateFile(role: string): string {
+  return path.join(templatesDir(), "roles", `${role}.md`);
+}
+
+/** Project overlay path — also used by ReplyLane to detect an external edit mid-session. */
+export function roleOverlayFile(projectRoot: string, role: string): string {
+  return path.join(projectRoot, ".founder-helpers", "roles", `${role}.md`);
+}
+
+/** Project profile path — also used by ReplyLane to detect an external edit mid-session. */
+export function profileFile(projectRoot: string): string {
+  return path.join(projectRoot, ".founder-helpers", "profile.md");
+}
+
 export interface AssembleContext {
   projectRoot: string;
   paths: StatePaths;
@@ -26,6 +41,12 @@ export interface AssembleContext {
   /** Local path to a photo attached to the founder's message, if any (#24). */
   imagePath?: string | undefined;
   grants: Grant[];
+  /**
+   * Reply mode only: the resumed session already has the role/profile/
+   * overlay/grants/language content from an earlier turn and nothing watched
+   * has changed since — skip re-sending it, Run context only.
+   */
+  trimmed?: boolean;
 }
 
 export interface AssembledPrompt {
@@ -46,9 +67,9 @@ function section(title: string, body: string): string {
 export function assemblePrompt(ctx: AssembleContext): AssembledPrompt {
   const parts: string[] = [];
 
-  const templateFile = path.join(templatesDir(), "roles", `${ctx.role}.md`);
-  const overlayFile = path.join(ctx.projectRoot, ".founder-helpers", "roles", `${ctx.role}.md`);
-  const profileFile = path.join(ctx.projectRoot, ".founder-helpers", "profile.md");
+  const templateFile = roleTemplateFile(ctx.role);
+  const overlayFile = roleOverlayFile(ctx.projectRoot, ctx.role);
+  const projectProfileFile = profileFile(ctx.projectRoot);
 
   const hasTemplate = existsSync(templateFile);
   const hasOverlay = existsSync(overlayFile);
@@ -58,42 +79,49 @@ export function assemblePrompt(ctx: AssembleContext): AssembledPrompt {
     );
   }
 
-  if (hasTemplate) {
-    parts.push(readFileSync(templateFile, "utf8").trim());
-  }
-  if (existsSync(profileFile)) {
-    parts.push(section("Project profile (written by the founder)", readFileSync(profileFile, "utf8")));
-  }
-  if (hasOverlay) {
-    const title = hasTemplate
-      ? "Project overlay (your team's own knowledge — trust it)"
-      : `Custom role definition: ${ctx.role}`;
-    parts.push(section(title, readFileSync(overlayFile, "utf8")));
-  }
+  if (!ctx.trimmed) {
+    if (hasTemplate) {
+      parts.push(readFileSync(templateFile, "utf8").trim());
+    }
+    if (existsSync(projectProfileFile)) {
+      parts.push(
+        section(
+          "Project profile (written by the founder)",
+          readFileSync(projectProfileFile, "utf8"),
+        ),
+      );
+    }
+    if (hasOverlay) {
+      const title = hasTemplate
+        ? "Project overlay (your team's own knowledge — trust it)"
+        : `Custom role definition: ${ctx.role}`;
+      parts.push(section(title, readFileSync(overlayFile, "utf8")));
+    }
 
-  const active = ctx.grants.filter((g) => g.granted && !g.revoked);
-  const grantLines = active.length
-    ? active
-        .map(
-          (g) =>
-            `- [${g.scope}] granted ${g.date}: "${g.quote}"` +
-            (g.conditions ? ` — conditions: ${g.conditions}` : "") +
-            ` (revoke with: fh grant revoke ${g.id})`,
-        )
-        .join("\n")
-    : "None.";
-  parts.push(
-    section(
-      "Active standing grants",
-      `${grantLines}\n\n` +
-        `Default rule: anything NOT covered by a grant above requires explicit per-instance ` +
-        `approval from the founder. When unsure whether a grant covers an action, it does not — ask. ` +
-        `Two things are NEVER covered by standing grants: communicating externally as the founder, ` +
-        `and spending money.`,
-    ),
-  );
+    const active = ctx.grants.filter((g) => g.granted && !g.revoked);
+    const grantLines = active.length
+      ? active
+          .map(
+            (g) =>
+              `- [${g.scope}] granted ${g.date}: "${g.quote}"` +
+              (g.conditions ? ` — conditions: ${g.conditions}` : "") +
+              ` (revoke with: fh grant revoke ${g.id})`,
+          )
+          .join("\n")
+      : "None.";
+    parts.push(
+      section(
+        "Active standing grants",
+        `${grantLines}\n\n` +
+          `Default rule: anything NOT covered by a grant above requires explicit per-instance ` +
+          `approval from the founder. When unsure whether a grant covers an action, it does not — ask. ` +
+          `Two things are NEVER covered by standing grants: communicating externally as the founder, ` +
+          `and spending money.`,
+      ),
+    );
 
-  parts.push(section("Language", languageDirective(ctx.config.language)));
+    parts.push(section("Language", languageDirective(ctx.config.language)));
+  }
 
   const contextLines = [
     `- Role: ${ctx.role}`,
@@ -136,8 +164,12 @@ export function assemblePrompt(ctx: AssembleContext): AssembledPrompt {
   const promptFile = path.join(ctx.runDir, "prompt.md");
   writeFileSync(promptFile, `${parts.join("")}\n`, "utf8");
 
-  const spawnPrompt =
-    `Read the file "${promptFile}" and follow it exactly. ` +
-    `You are running headless with no human present — never ask questions and never wait for input.`;
+  const spawnPrompt = ctx.trimmed
+    ? `Nothing about your role, profile, overlay or grants has changed since your last message in ` +
+      `this conversation — you already know all of that, no need to re-read or re-verify it. Read ` +
+      `the file "${promptFile}" for what's new this turn (just the Run context) and follow it. ` +
+      `You are running headless with no human present — never ask questions and never wait for input.`
+    : `Read the file "${promptFile}" and follow it exactly. ` +
+      `You are running headless with no human present — never ask questions and never wait for input.`;
   return { promptFile, spawnPrompt };
 }
