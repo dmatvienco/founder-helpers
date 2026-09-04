@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0
+
+- The Telegram transport loop now self-heals a stuck connection pool
+  instead of hanging forever until the daemon is restarted by hand: once
+  the loop error streak hits the alert threshold, it throws away and
+  recreates its underlying connection pool before the next retry. If that
+  doesn't clear the stuck state, the streak keeps growing and the founder
+  is still alerted as before.
+
 ## 0.6.0
 
 - A resumed reply-mode turn now skips re-sending the full role
