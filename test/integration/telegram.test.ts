@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { Agent } from "undici";
 import { afterEach, describe, expect, it } from "vitest";
 import { readJson, writeJsonAtomic } from "../../src/state/atomic.js";
 import { TransportStateSchema } from "../../src/state/schema.js";
@@ -295,6 +296,31 @@ describe("TelegramTransport", () => {
     await new Promise((r) => setTimeout(r, 400));
     const alerts = server.sentMessages.filter((m) => m.text.includes("in a row"));
     expect(alerts.length).toBe(1);
+    server.failGetUpdates = 0;
+    await t.stop();
+  });
+
+  it("recreates its connection pool once at the alert streak, not on every retry (#self-heal)", async () => {
+    const server = await startMockTelegram();
+    cleanups.push(() => server.close());
+    const t = makeTransport(server, tmpStateFile());
+    const agentOf = (): Agent => (t as unknown as { agent: Agent }).agent;
+    const original = agentOf();
+
+    server.failGetUpdates = Number.POSITIVE_INFINITY;
+    t.start(async () => {});
+    await until(
+      () => server.sentMessages.some((m) => m.text.includes("failed 4x")),
+      15000,
+      "streak alert",
+    );
+    const afterAlert = agentOf();
+    expect(afterAlert).not.toBe(original);
+
+    // more error iterations pass — no repeat recreation without a fresh incident
+    await new Promise((r) => setTimeout(r, 400));
+    expect(agentOf()).toBe(afterAlert);
+
     server.failGetUpdates = 0;
     await t.stop();
   });

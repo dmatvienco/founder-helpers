@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { Agent } from "undici";
 import { readJson, writeJsonAtomic } from "../state/atomic.js";
 import type { Logger } from "../state/log.js";
 import { statePaths, type PathsOptions } from "../state/paths.js";
@@ -37,6 +38,30 @@ export class TelegramTransport implements Transport {
   private progressSent = "";
   private inFlight: AbortController | undefined;
   private lastUpdateId = 0;
+  /**
+   * Own connection pool, not the process-global one — so a stuck/stale
+   * socket (observed live: getUpdates hangs the full guard timeout on
+   * every retry after a network blip, never recovering on its own) can be
+   * thrown away and replaced without restarting the whole daemon.
+   *
+   * `undici` here MUST stay on the same major version as Node's own
+   * bundled undici (`process.versions.undici`, currently 7.x) — passing a
+   * v8 Agent as `fetch`'s `dispatcher` to Node's v7-based fetch throws
+   * "InvalidArgumentError: invalid onRequestStart method" (confirmed live:
+   * every telegram.test.ts fetch-mocking test failed until pinned to ^7).
+   */
+  private agent = new Agent();
+
+  /**
+   * The `undici` package's own `Agent`/`Dispatcher` types and the ones Node's
+   * built-in `fetch` expects (from `@types/node`'s bundled `undici-types`)
+   * are two structurally-incompatible copies of the same runtime shape, even
+   * on matching versions — a known cross-package typing friction, not a real
+   * mismatch. One cast, here, instead of one at every call site.
+   */
+  private get dispatcher(): NonNullable<RequestInit["dispatcher"]> {
+    return this.agent as unknown as NonNullable<RequestInit["dispatcher"]>;
+  }
 
   constructor(private o: TelegramOptions) {}
 
@@ -50,6 +75,7 @@ export class TelegramTransport implements Transport {
       method: "POST",
       headers: { "content-type": "application/json; charset=utf-8" },
       body: JSON.stringify(body),
+      dispatcher: this.dispatcher,
     });
     const data = (await res.json()) as { ok: boolean; description?: string; result?: unknown };
     if (!data.ok) throw new Error(`telegram ${method} failed: ${data.description ?? res.status}`);
@@ -78,7 +104,7 @@ export class TelegramTransport implements Transport {
         const guard = setTimeout(() => this.inFlight?.abort(), (pollTimeout + 25) * 1000);
         const res = await fetch(
           this.api(`getUpdates?offset=${this.lastUpdateId + 1}&timeout=${pollTimeout}`),
-          { signal: this.inFlight.signal },
+          { signal: this.inFlight.signal, dispatcher: this.dispatcher },
         );
         clearTimeout(guard);
         const data = (await res.json()) as {
@@ -161,6 +187,16 @@ export class TelegramTransport implements Transport {
         streak = msg === lastErr ? streak + 1 : 1;
         lastErr = msg;
         this.o.logger?.warn(`transport loop error (${streak}x): ${msg}`);
+        if (streak === alertStreak) {
+          // A plain retry reuses the same connection pool, so a stuck/stale
+          // socket keeps hanging the same way forever — throw the pool away
+          // once and let the next attempt build fresh connections. Cheap,
+          // non-disruptive; if this doesn't fix it, streak keeps growing and
+          // the alert below keeps the founder informed.
+          const stale = this.agent;
+          this.agent = new Agent();
+          void stale.destroy().catch(() => {});
+        }
         // A stuck loop must tell the founder instead of dying silently
         // (predecessor lesson: 19 silent hours). Alert once at the streak
         // threshold, then roughly hourly while it persists.
@@ -193,6 +229,7 @@ export class TelegramTransport implements Transport {
     this.endProgress();
     this.inFlight?.abort();
     await this.loopDone;
+    await this.agent.destroy().catch(() => {});
   }
 
   /** getFile + download the raw bytes, saved as `<updateId><ext>` under imagesDir. */
@@ -201,7 +238,9 @@ export class TelegramTransport implements Transport {
     const filePath = info.file_path;
     if (!filePath) throw new Error("getFile returned no file_path");
     const base = this.o.apiBase ?? "https://api.telegram.org";
-    const res = await fetch(`${base}/file/bot${this.o.botToken}/${filePath}`);
+    const res = await fetch(`${base}/file/bot${this.o.botToken}/${filePath}`, {
+      dispatcher: this.dispatcher,
+    });
     if (!res.ok) throw new Error(`file download failed: ${res.status}`);
     const buf = Buffer.from(await res.arrayBuffer());
     mkdirSync(this.o.imagesDir, { recursive: true });
@@ -227,7 +266,11 @@ export class TelegramTransport implements Transport {
     const shortCaption = caption && caption.length <= CAPTION_LIMIT ? caption : undefined;
     if (shortCaption) fd.append("caption", shortCaption);
     fd.append("photo", new Blob([new Uint8Array(buf)]), path.basename(filePath));
-    const res = await fetch(this.api("sendPhoto"), { method: "POST", body: fd });
+    const res = await fetch(this.api("sendPhoto"), {
+      method: "POST",
+      body: fd,
+      dispatcher: this.dispatcher,
+    });
     const data = (await res.json()) as { ok: boolean; description?: string };
     if (!data.ok) throw new Error(`telegram sendPhoto failed: ${data.description ?? res.status}`);
     if (caption && !shortCaption) {
