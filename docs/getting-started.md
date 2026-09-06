@@ -7,7 +7,7 @@ through GitHub issues.
 ```bash
 npm i -g founder-helpers
 cd your-project
-fh init          # scaffolds .founder-helpers/, pairs your Telegram bot
+fh init          # scaffolds .founder-helpers/, picks a model, pairs your Telegram bot
 fh doctor        # everything green?
 fh daemon        # leave it running (see running-as-a-service.md)
 ```
