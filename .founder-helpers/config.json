@@ -14,11 +14,16 @@
     "permissionMode": "allowlist"
   },
   "roles": {
+    "pm": {
+      "model": "claude-fable-5-1"
+    },
     "dev": {
-      "timeoutMin": 90
+      "timeoutMin": 90,
+      "model": "claude-opus-5"
     },
     "reviewer": {
-      "timeoutMin": 20
+      "timeoutMin": 20,
+      "model": "claude-opus-5"
     }
   },
   "digest": {
