@@ -108,6 +108,7 @@ export async function runRole(
   });
 
   const timeoutMin = config.roles[role]?.timeoutMin ?? 60;
+  const model = config.roles[role]?.model ?? config.runner.model;
   const runner = selectRunner(config, sp, opts.runner);
 
   const startedAt = new Date().toISOString();
@@ -118,7 +119,7 @@ export async function runRole(
     cwd: projectRoot,
     runDir,
     timeoutMs: opts.timeoutMsOverride ?? timeoutMin * 60_000,
-    model: config.runner.model,
+    model,
     permissionMode: config.runner.permissionMode,
     settingsFile,
     addDirs: [sp.root],

@@ -21,7 +21,14 @@ export const ProjectConfigSchema = z.object({
     })
     .prefault({}),
   roles: z
-    .record(z.string(), z.object({ timeoutMin: z.number().int().positive().default(60) }))
+    .record(
+      z.string(),
+      z.object({
+        timeoutMin: z.number().int().positive().default(60),
+        /** Per-role model override; absent falls back to `runner.model`. */
+        model: z.string().optional(),
+      }),
+    )
     .default({ dev: { timeoutMin: 90 }, reviewer: { timeoutMin: 20 } }),
   digest: z
     .object({

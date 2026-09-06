@@ -275,6 +275,23 @@ describe("MockRunner", () => {
     expect(readFileSync(path.join(sp, "outbox", "morning.txt"), "utf8")).toBe("digest text");
   });
 
+  it("resolves a per-role model override, falling back to runner.model otherwise (#27)", async () => {
+    const { repo, stateBase } = makeProject();
+    const configFile = path.join(repo, ".founder-helpers", "config.json");
+    const config = JSON.parse(readFileSync(configFile, "utf8"));
+    config.roles.dev.model = "claude-opus-5";
+    writeFileSync(configFile, JSON.stringify(config, null, 2), "utf8");
+
+    const sp = mkdtempSync(path.join(tmpdir(), "fh-mockbase-model-"));
+    const runner = new MockRunner([{ role: "dev" }, { role: "reviewer" }], sp);
+
+    await runRole(repo, "dev", { paths: { stateBase }, runner });
+    await runRole(repo, "reviewer", { paths: { stateBase }, runner });
+
+    expect(runner.calls[0]?.model).toBe("claude-opus-5");
+    expect(runner.calls[1]?.model).toBe(config.runner.model);
+  });
+
   it("hang scenario resolves as timeout; limit text resolves as limit", async () => {
     const { repo, stateBase } = makeProject();
     const sp = mkdtempSync(path.join(tmpdir(), "fh-mockbase2-"));
