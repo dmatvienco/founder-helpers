@@ -1,8 +1,9 @@
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import path from "node:path";
+import { pickModel } from "./model-picker.js";
 import { pairTelegram, type PairResult } from "./pair.js";
 import { loadSecrets, saveSecrets } from "../state/secrets.js";
 import { writeJsonAtomic } from "../state/atomic.js";
@@ -194,6 +195,28 @@ export async function initCommand(args: string[]): Promise<number> {
   console.log(`Project config: ${rel(result.configDir)}  (commit this directory)`);
   console.log(`State & secrets: ${result.stateRoot}  (outside the repo, never committed)`);
   console.log("");
+  // Model choice: only on a fresh config.json, and only in a real terminal —
+  // an existing config's runner.model is never touched (same "never
+  // overwrite" rule as the rest of runInit).
+  const configFile = path.join(result.configDir, "config.json");
+  if (result.created.includes(configFile) && process.stdin.isTTY && process.stdout.isTTY) {
+    const config = ProjectConfigSchema.parse(JSON.parse(readFileSync(configFile, "utf8")));
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      const model = await pickModel(
+        { ask: (q) => rl.question(q), say: (l) => console.log(l) },
+        config.runner.model,
+      );
+      if (model !== config.runner.model) {
+        config.runner.model = model;
+        writeFileSync(configFile, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+      }
+      console.log(`Model: ${model}`);
+    } finally {
+      rl.close();
+    }
+    console.log("");
+  }
   // Telegram pairing (skippable; interactive only).
   const sp = statePaths(process.cwd());
   if (values["no-telegram"]) {
