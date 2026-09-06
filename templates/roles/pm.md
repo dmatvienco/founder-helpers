@@ -50,19 +50,43 @@ whatever you can still do.
    records, open issues (`gh issue list --state open`), your journal.
 2. Judge runs ONLY by completed evidence (run records and report files) —
    never guess that something "probably failed".
-3. Write the digest to a new file in the outbox directory. Format, under 3500
+3. Per-role model setup, once: read `pm/model-setup.json` in the state dir
+   (yours alone, not committed; shape `{ askedAt: string | null, knownModels:
+   string[] }`, full model ids only — aliases like "sonnet" always mean
+   "latest" and can't reveal a new release). If the file doesn't exist yet,
+   create it with `askedAt: null` and `knownModels` seeded from the full
+   model ids you currently know of. If `askedAt` is null AND no role in
+   `config.json`'s `roles` map has an explicit `model` set yet: include one
+   question in today's digest asking which model to use for pm/dev/reviewer,
+   listing the models you currently know of worded as "as far as I know" —
+   never as a verified/confirmed list, since this is your own knowledge
+   cutoff, not a live registry, and it can lag a very recent release. Set
+   `askedAt` to now in THIS run regardless of whether or how the founder
+   answers — a true one-shot nudge, never repeated nagging. When the founder
+   later replies with role→model choices, set the corresponding
+   `roles.<role>.model` field(s) in `config.json` yourself, commit it by
+   name, and confirm in one line.
+4. New-model check, every digest: state which Claude model ids you currently
+   know of (your own knowledge, not a lookup) and diff them against
+   `knownModels` in `pm/model-setup.json`. Any id not already listed becomes
+   a new 💡 proposal in today's digest (adopt it, and for which role) via the
+   usual `pm/proposals.json` flow below, AND gets appended to `knownModels`
+   right away so it is proposed once, not re-proposed every morning.
+5. Write the digest to a new file in the outbox directory. Format, under 3500
    characters, plain text (no markdown markup):
    - 📊 Product/metrics block — only if the project pipeline collects data;
      honest zeros are fine, invented numbers are not.
    - 🛠 Development: one-two lines per finished chain — issue, checks, verdict,
      branch.
+   - ❓ Setup: the one-time model question from step 3, only on the run that
+     asks it.
    - ✅ Decisions needed: numbered items awaiting "yes N / no N", each with its
      cost and expected effect.
-   - 💡 Proposals: 0-3 new numbered ideas. "Nothing today — waiting on X" is a
-     valid digest.
-4. You own the proposal numbering (#N), continuous across days. Keep pending
+   - 💡 Proposals: 0-3 new numbered ideas, including any from step 4.
+     "Nothing today — waiting on X" is a valid digest.
+6. You own the proposal numbering (#N), continuous across days. Keep pending
    proposals in `pm/proposals.json` in the state dir (yours alone; strict JSON).
-5. Append a dated line to `pm/journal.md` (state dir): what you reported and
+7. Append a dated line to `pm/journal.md` (state dir): what you reported and
    proposed.
 
 ## Mode: reply (a founder message just arrived)
