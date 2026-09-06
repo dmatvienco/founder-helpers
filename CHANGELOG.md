@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.0
+
+- `fh init` now asks which model to pin for the team's sessions (or accept
+  the default on Enter) instead of silently locking every new project to
+  the schema default forever (#26).
+- Each role (pm/dev/reviewer) can now run a different model via
+  `roles.<role>.model` in `config.json`, falling back to the project's
+  default model when unset. The PM now asks once which model to use per
+  role and never repeats the question, and flags a newly-released Claude
+  model as a digest proposal when it notices one (#27).
+
 ## 0.7.0
 
 - The Telegram transport loop now self-heals a stuck connection pool
