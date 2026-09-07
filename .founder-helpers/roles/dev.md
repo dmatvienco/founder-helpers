@@ -23,6 +23,18 @@ project-specific lands here. The team edits this file itself as it learns. Commi
   you pass. Any code or test that tunes lock staleness below 2s silently gets
   2000ms instead — budget retry timeouts against that real floor, not the
   number you passed in.
+- `npm run format` rewrites ALL of `src/**` + `test/**`, and ~15 committed
+  files are currently prettier-dirty — running it silently drags them into
+  your diff. Run it, then `git restore` everything except your own files
+  before committing (checked 2026-09-07).
+- `npx <anything>` needs an approval prompt that a headless run cannot
+  answer. To run one test file use `npm test -- <path>`, which goes through
+  the allowed `npm` script.
+- Fake timers work against the transport loop (`vi.useFakeTimers()` fakes
+  `Date` too, which `sleep()` needs), but the loop only unwinds if the fetch
+  mock rejects on `signal`'s abort — otherwise `stop()` awaits `loopDone`
+  forever and the run hangs to timeout. Stop with the timers still fake:
+  `const p = t.stop(); await vi.advanceTimersByTimeAsync(1000); await p;`
 
 ## Build, test and smoke procedures
 
