@@ -100,13 +100,26 @@ export class TelegramTransport implements Transport {
 
     while (!this.stopped) {
       try {
-        this.inFlight = new AbortController();
-        const guard = setTimeout(() => this.inFlight?.abort(), (pollTimeout + 25) * 1000);
-        const res = await fetch(
-          this.api(`getUpdates?offset=${this.lastUpdateId + 1}&timeout=${pollTimeout}`),
-          { signal: this.inFlight.signal, dispatcher: this.dispatcher },
-        );
-        clearTimeout(guard);
+        // The guard is bound to THIS poll's own controller, not to
+        // `this.inFlight`, and is cleared in a `finally` — otherwise a fetch
+        // that rejects early (`fetch failed` on a DNS/reset blip) skips the
+        // clear, and 75s later the orphaned timer aborts whatever poll is in
+        // flight by then. That abort leaks its own guard in turn, and one
+        // network blip becomes an endless abort chain (#28). `stop()` still
+        // aborts through `this.inFlight`, which keeps pointing at the current
+        // controller, so shutdown is unchanged.
+        const ctrl = new AbortController();
+        this.inFlight = ctrl;
+        const guard = setTimeout(() => ctrl.abort(), (pollTimeout + 25) * 1000);
+        let res: Response;
+        try {
+          res = await fetch(
+            this.api(`getUpdates?offset=${this.lastUpdateId + 1}&timeout=${pollTimeout}`),
+            { signal: ctrl.signal, dispatcher: this.dispatcher },
+          );
+        } finally {
+          clearTimeout(guard);
+        }
         const data = (await res.json()) as {
           ok: boolean;
           description?: string;
