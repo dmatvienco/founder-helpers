@@ -51,7 +51,9 @@ monthlyRange: { start, end }, error } }`. Read that file for the 📊 block:
   collection time.
 - If a range's `end` is older than yesterday in UTC (relative to
   `collectedAt`), npm's own stats are stale: say the count is npm's figure as
-  of that `end` date instead of reporting it as current.
+  of that `end` date instead of reporting it as current. A `null` `end`
+  (npm omitted the dates) means the freshness is unknown, not current — say
+  so rather than reporting the count as live.
 
 ## Lessons learned
 
