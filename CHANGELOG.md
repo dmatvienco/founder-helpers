@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.0
+
+- The Telegram transport's per-poll abort guard is now bound to its own
+  controller and always cleared, so a single `fetch failed` no longer leaves
+  a stray 75s timer that aborts the next poll, which aborted the one after
+  that, and so on until a daemon restart. Because a successful poll sat
+  between every two aborts, the error streak never exceeded 1 and neither
+  the 0.7.0 self-heal nor the founder alert could fire on that pattern (#28).
+- `scripts/collect-metrics.mjs` now records the `start`/`end` date range npm
+  reports alongside the weekly/monthly download counts, and the PM's digest
+  instructions report the count as npm's figure "as of" that end date when
+  the range lags, so a stale upstream stats pipeline no longer reads as an
+  adoption plateau (#29).
+
 ## 0.8.0
 
 - `fh init` now asks which model to pin for the team's sessions (or accept
