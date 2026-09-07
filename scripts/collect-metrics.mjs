@@ -30,8 +30,15 @@ export function parseGithubStats(json) {
   };
 }
 
+// npm's point endpoint answers `{ downloads, start, end, package }`. Keep the
+// date range, not just the count: without it a flat number is indistinguishable
+// from a stale upstream stats pipeline (see issue #29).
 export function parseNpmDownloadPoint(json) {
-  return typeof json.downloads === "number" ? json.downloads : null;
+  return {
+    downloads: typeof json.downloads === "number" ? json.downloads : null,
+    start: typeof json.start === "string" ? json.start : null,
+    end: typeof json.end === "string" ? json.end : null,
+  };
 }
 
 function errorMessage(err) {
@@ -65,9 +72,23 @@ export async function collectNpm(pkg = PACKAGE, fetchFn = fetch) {
       fetchDownloadPoint("last-week", pkg, fetchFn),
       fetchDownloadPoint("last-month", pkg, fetchFn),
     ]);
-    return { weekly: parseNpmDownloadPoint(week), monthly: parseNpmDownloadPoint(month), error: null };
+    const weekPoint = parseNpmDownloadPoint(week);
+    const monthPoint = parseNpmDownloadPoint(month);
+    return {
+      weekly: weekPoint.downloads,
+      weeklyRange: { start: weekPoint.start, end: weekPoint.end },
+      monthly: monthPoint.downloads,
+      monthlyRange: { start: monthPoint.start, end: monthPoint.end },
+      error: null,
+    };
   } catch (err) {
-    return { weekly: null, monthly: null, error: errorMessage(err) };
+    return {
+      weekly: null,
+      weeklyRange: { start: null, end: null },
+      monthly: null,
+      monthlyRange: { start: null, end: null },
+      error: errorMessage(err),
+    };
   }
 }
 

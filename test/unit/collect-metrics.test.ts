@@ -30,13 +30,41 @@ describe("parseGithubStats", () => {
 });
 
 describe("parseNpmDownloadPoint", () => {
-  it("reads the downloads count", () => {
-    expect(parseNpmDownloadPoint({ downloads: 0, package: "founder-helpers" })).toBe(0);
-    expect(parseNpmDownloadPoint({ downloads: 42 })).toBe(42);
+  it("reads the downloads count together with the date range it covers", () => {
+    expect(
+      parseNpmDownloadPoint({
+        downloads: 0,
+        start: "2026-08-31",
+        end: "2026-09-06",
+        package: "founder-helpers",
+      }),
+    ).toEqual({ downloads: 0, start: "2026-08-31", end: "2026-09-06" });
+    expect(parseNpmDownloadPoint({ downloads: 42, start: "2026-08-08", end: "2026-09-06" })).toEqual({
+      downloads: 42,
+      start: "2026-08-08",
+      end: "2026-09-06",
+    });
   });
 
-  it("returns null when the shape is unexpected", () => {
-    expect(parseNpmDownloadPoint({ error: "package not found" })).toBeNull();
+  it("keeps the count when start/end are absent instead of dropping the whole point", () => {
+    expect(parseNpmDownloadPoint({ downloads: 7 })).toEqual({
+      downloads: 7,
+      start: null,
+      end: null,
+    });
+  });
+
+  it("returns nulls when the shape is unexpected", () => {
+    expect(parseNpmDownloadPoint({ error: "package not found" })).toEqual({
+      downloads: null,
+      start: null,
+      end: null,
+    });
+    expect(parseNpmDownloadPoint({ downloads: "42", start: 20260808, end: null })).toEqual({
+      downloads: null,
+      start: null,
+      end: null,
+    });
   });
 });
 
@@ -75,12 +103,16 @@ describe("collectNpm", () => {
     const calledUrls = [];
     const fetchFn = async (url) => {
       calledUrls.push(url);
-      const downloads = url.includes("last-week") ? 10 : 100;
-      return { ok: true, json: async () => ({ downloads }) };
+      const point = url.includes("last-week")
+        ? { downloads: 10, start: "2026-08-31", end: "2026-09-06" }
+        : { downloads: 100, start: "2026-08-08", end: "2026-09-06" };
+      return { ok: true, json: async () => point };
     };
     await expect(collectNpm("founder-helpers", fetchFn)).resolves.toEqual({
       weekly: 10,
+      weeklyRange: { start: "2026-08-31", end: "2026-09-06" },
       monthly: 100,
+      monthlyRange: { start: "2026-08-08", end: "2026-09-06" },
       error: null,
     });
     expect(calledUrls).toEqual([
@@ -89,11 +121,27 @@ describe("collectNpm", () => {
     ]);
   });
 
+  it("still reports the counts when npm omits start/end", async () => {
+    const fetchFn = async (url) => ({
+      ok: true,
+      json: async () => ({ downloads: url.includes("last-week") ? 22 : 663 }),
+    });
+    await expect(collectNpm("founder-helpers", fetchFn)).resolves.toEqual({
+      weekly: 22,
+      weeklyRange: { start: null, end: null },
+      monthly: 663,
+      monthlyRange: { start: null, end: null },
+      error: null,
+    });
+  });
+
   it("reports an honest error instead of throwing on a non-OK response", async () => {
     const fetchFn = async () => ({ ok: false, status: 503, json: async () => ({}) });
     const result = await collectNpm("founder-helpers", fetchFn);
     expect(result.weekly).toBeNull();
     expect(result.monthly).toBeNull();
+    expect(result.weeklyRange).toEqual({ start: null, end: null });
+    expect(result.monthlyRange).toEqual({ start: null, end: null });
     expect(result.error).toMatch(/503/);
   });
 });
