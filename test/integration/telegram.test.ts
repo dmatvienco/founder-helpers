@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Agent } from "undici";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { readJson, writeJsonAtomic } from "../../src/state/atomic.js";
 import { TransportStateSchema } from "../../src/state/schema.js";
 import { TelegramTransport } from "../../src/transport/telegram.js";
@@ -323,6 +323,55 @@ describe("TelegramTransport", () => {
 
     server.failGetUpdates = 0;
     await t.stop();
+  });
+
+  it("a failed poll does not leave a guard timer that aborts the next one (#28)", async () => {
+    // No mock server here: the whole point is a fetch that rejects the way a
+    // DNS/reset blip does, before any HTTP exchange happens.
+    vi.useFakeTimers();
+    const warnings: string[] = [];
+    const signals: AbortSignal[] = [];
+    let calls = 0;
+    vi.stubGlobal("fetch", (_url: unknown, init?: { signal?: AbortSignal }) => {
+      calls++;
+      const signal = init?.signal;
+      if (signal) signals.push(signal);
+      if (calls === 1) return Promise.reject(new TypeError("fetch failed"));
+      // Every later poll is a long poll that only ends when its own signal
+      // aborts — so `stop()` can still unwind the loop at the end.
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new Error("This operation was aborted")));
+      });
+    });
+
+    const t = new TelegramTransport({
+      botToken: "TEST",
+      chatId: 42,
+      stateFile: tmpStateFile(),
+      imagesDir: tmpImagesDir(),
+      apiBase: "http://127.0.0.1:1",
+      pollTimeoutSec: 50, // guard fires (50 + 25)s after the poll is armed
+      errorSleepMs: 15_000,
+      alertStreak: 4,
+      logger: { info: () => {}, warn: (m: string) => warnings.push(m), error: () => {} },
+    });
+
+    try {
+      t.start(async () => {});
+      await vi.advanceTimersByTimeAsync(16_000); // poll 1 rejects, errorSleep passes, poll 2 arms
+      expect(calls).toBe(2);
+      await vi.advanceTimersByTimeAsync(60_000); // t≈76s: past poll 1's 75s guard deadline
+
+      expect(signals[1]?.aborted).toBe(false); // the dead poll's guard must not kill the live one
+      expect(calls).toBe(2); // still the same long poll — no abort chain
+      expect(warnings.length).toBe(1); // exactly one error logged, the real one
+    } finally {
+      const stopping = t.stop();
+      await vi.advanceTimersByTimeAsync(1000);
+      await stopping;
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
   });
 });
 
