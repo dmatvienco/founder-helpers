@@ -31,7 +31,8 @@ Honesty rules' spirit applied to marketing, not just status reporting.
 `digest.pipeline[0].prepare` runs `node scripts/collect-metrics.mjs` before
 you (morning mode only) and writes `pm/metrics.json` in the state dir:
 `{ collectedAt, github: { stars, forks, watchers, openIssues, error },
-npm: { weekly, monthly, error } }`. Read that file for the 📊 block:
+npm: { weekly, weeklyRange: { start, end }, monthly,
+monthlyRange: { start, end }, error } }`. Read that file for the 📊 block:
 
 - Report the numbers as-is, including real zeros (pre-launch is honestly
   zero, not "no data").
@@ -48,6 +49,9 @@ npm: { weekly, monthly, error } }`. Read that file for the 📊 block:
   the founder compares hours later against the live npmjs.org page will look
   "wrong" if it isn't clearly timestamped, when it was actually correct at
   collection time.
+- If a range's `end` is older than yesterday in UTC (relative to
+  `collectedAt`), npm's own stats are stale: say the count is npm's figure as
+  of that `end` date instead of reporting it as current.
 
 ## Lessons learned
 
