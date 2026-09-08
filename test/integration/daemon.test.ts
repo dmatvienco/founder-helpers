@@ -78,6 +78,23 @@ function limitStdout(ms: number): string {
   return `You've hit your session limit · resets ${hh}:${mm} (UTC)`;
 }
 
+/**
+ * Simulates a dev run that genuinely pushed: a real bare "origin" remote with
+ * `branch` on it, so the worker's `branchOnOrigin` post-condition check finds
+ * it (MockRunner itself never touches git — it only writes files).
+ */
+function pushBranchToOrigin(repo: string, branch: string): void {
+  const bare = mkdtempSync(path.join(tmpdir(), "fh-origin-"));
+  execFileSync("git", ["init", "--bare", "-q", bare], { stdio: "ignore" });
+  execFileSync("git", ["-C", repo, "remote", "add", "origin", bare], { stdio: "ignore" });
+  execFileSync("git", ["-C", repo, "config", "user.email", "t@t.test"], { stdio: "ignore" });
+  execFileSync("git", ["-C", repo, "config", "user.name", "t"], { stdio: "ignore" });
+  execFileSync("git", ["-C", repo, "commit", "--allow-empty", "-m", "init"], { stdio: "ignore" });
+  execFileSync("git", ["-C", repo, "checkout", "-b", branch], { stdio: "ignore" });
+  execFileSync("git", ["-C", repo, "push", "origin", branch], { stdio: "ignore" });
+  execFileSync("git", ["-C", repo, "checkout", "-"], { stdio: "ignore" });
+}
+
 describe("daemon E2E (mock runner + mock telegram)", () => {
   it('full chain: "да 1" -> PM queues issue -> dev+reviewer -> completion carries the verdict', async () => {
     const env = await makeEnv();
@@ -601,6 +618,9 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
 
   it("dev ok, reviewer hits the session limit -> the retry after the pause resumes at review only, never redoes dev (#34)", async () => {
     const env = await makeEnv();
+    // Both dev post-conditions must genuinely hold for the stage stamp to
+    // fire (#36) — the report is mocked below, the branch push is real.
+    pushBranchToOrigin(env.repo, "team/issue-11");
     const scenarios: MockScenario[] = [
       { role: "dev", writeFiles: [{ path: "dev/report-issue11.md", content: "# report" }] },
       { role: "reviewer", stdout: "You've hit your session limit until 7pm." },
@@ -636,6 +656,47 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
     expect(runner.calls.filter((c) => c.role === "reviewer")).toHaveLength(2);
     const completion = env.server.sentMessages.find((m) => m.text.includes("✅ ок"));
     expect(completion?.text).toContain("dev resumed");
+  });
+
+  it("dev ends in error (no branch, no report), reviewer hits the session limit -> the retry after the pause reruns dev, not just review (#36)", async () => {
+    const env = await makeEnv();
+    const scenarios: MockScenario[] = [
+      // No "dev" scenario at all -> MockRunner reports "error" and writes
+      // nothing, exactly like a dev step that never finished.
+      { role: "reviewer", stdout: "You've hit your session limit until 7pm." },
+    ];
+    const runner = new MockRunner(scenarios, env.sp.root);
+    await boot(env, scenarios, { limitRetryMs: 100, runner });
+    addJob(env.sp.queueFile, { kind: "issue", issue: 12, base: "main" });
+
+    await until(
+      () => env.server.sentMessages.some((m) => m.text.includes("⏳")),
+      10000,
+      "limit notification",
+    );
+    // Dev never really finished — the job must stay unstaged so the retry
+    // reruns dev instead of jumping straight to reviewing a branch/report
+    // that don't exist.
+    expect(loadQueue(env.sp.queueFile).jobs[0]?.stage).not.toBe("review");
+    expect(runner.calls.filter((c) => c.role === "dev")).toHaveLength(1);
+
+    // The limit lifts — this time dev genuinely finishes, then review too.
+    scenarios.length = 0;
+    scenarios.push(
+      { role: "dev", writeFiles: [{ path: "dev/report-issue12.md", content: "# report" }] },
+      { role: "reviewer", writeFiles: [{ path: "dev/review-issue12.md", content: "✅ ок" }] },
+    );
+
+    await until(
+      () => env.server.sentMessages.some((m) => m.text.includes("✅ ок")),
+      10000,
+      "completion after the retry reran dev",
+    );
+    expect(loadQueue(env.sp.queueFile).jobs).toEqual([]);
+    // Dev ran a SECOND time on the retry — the earlier error must not have
+    // stamped the job "review" the way #34's fix does for a real success.
+    expect(runner.calls.filter((c) => c.role === "dev")).toHaveLength(2);
+    expect(runner.calls.filter((c) => c.role === "reviewer")).toHaveLength(2);
   });
 
   it("reply lane: 3 failed composes -> honest apology, offset advances, next message works", async () => {

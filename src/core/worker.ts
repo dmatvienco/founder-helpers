@@ -135,8 +135,14 @@ export class Worker {
 
       // Dev finished: a retry after a reviewer-side pause must resume at
       // review, not redo the dev step (fresh checkout, work repeated, a
-      // push clash against the already-existing branch) — #34.
-      setStage(this.o.paths.queueFile, job.id, "review");
+      // push clash against the already-existing branch) — #34. But only
+      // when dev actually ended ok AND both post-conditions held (no
+      // warning line above) — otherwise stamping "review" here would make
+      // a retry skip a dev step that never really finished, so the next
+      // attempt would review a branch/report that don't exist (#36).
+      if (dev.record.status === "ok" && lines.length === 0) {
+        setStage(this.o.paths.queueFile, job.id, "review");
+      }
     }
 
     this.busyLabel = `issue #${issue} (review)`;
