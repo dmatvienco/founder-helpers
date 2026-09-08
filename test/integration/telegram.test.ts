@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readJson, writeJsonAtomic } from "../../src/state/atomic.js";
 import { TransportStateSchema } from "../../src/state/schema.js";
 import { TelegramTransport } from "../../src/transport/telegram.js";
-import type { InboundMessage } from "../../src/transport/transport.js";
+import { RedeliverLater, type InboundMessage } from "../../src/transport/transport.js";
 import { startMockTelegram, until, type MockTelegram } from "../helpers/mock-telegram.js";
 import { pairTelegram } from "../../src/cli/pair.js";
 
@@ -322,6 +322,50 @@ describe("TelegramTransport", () => {
     expect(agentOf()).toBe(afterAlert);
 
     server.failGetUpdates = 0;
+    await t.stop();
+  });
+
+  it("a deliberate redelivery (session limit) never becomes a streak alert or a pool recycle (#30)", async () => {
+    const server = await startMockTelegram();
+    cleanups.push(() => server.close());
+    const stateFile = tmpStateFile();
+    const infos: string[] = [];
+    const t = makeTransport(server, stateFile, {
+      logger: { info: (m: string) => infos.push(m), warn: () => {}, error: () => {} },
+    });
+    const agentOf = (): Agent => (t as unknown as { agent: Agent }).agent;
+    const original = agentOf();
+
+    let attempts = 0;
+    t.start(async () => {
+      attempts++;
+      throw new RedeliverLater("session limit");
+    });
+    server.pushUpdate("подожди, я на лимите");
+    await until(() => attempts >= 6, 15000, "redeliveries past the alert streak"); // alertStreak is 4
+    await t.stop();
+
+    expect(server.sentMessages.filter((m) => m.text.includes("in a row"))).toEqual([]);
+    expect(agentOf()).toBe(original); // no pool recreation for a wait-only condition
+    expect(infos.some((l) => l.includes("session limit"))).toBe(true); // logged, not silent
+    // The redelivery guarantee is unchanged: the offset never moved past it,
+    // so even a restarting transport picks the same message up again.
+    expect(readJson(stateFile, TransportStateSchema, { lastUpdateId: 0 }).lastUpdateId).toBe(0);
+  });
+
+  it("still alerts when the handler fails for real, not by request (#30)", async () => {
+    const server = await startMockTelegram();
+    cleanups.push(() => server.close());
+    const t = makeTransport(server, tmpStateFile());
+    t.start(async () => {
+      throw new Error("boom");
+    });
+    server.pushUpdate("это упадёт");
+    await until(
+      () => server.sentMessages.some((m) => m.text.includes("failed 4x")),
+      15000,
+      "streak alert for a genuine failure",
+    );
     await t.stop();
   });
 
