@@ -57,7 +57,12 @@ export async function queueCommand(args: string[]): Promise<number> {
     return 0;
   }
   for (const j of queue.jobs) {
-    const what = j.kind === "issue" ? `issue #${j.issue} (base ${j.base ?? "default"})` : j.kind === "role" ? `role ${j.role}` : "digest";
+    const what =
+      j.kind === "issue"
+        ? `issue #${j.issue} (base ${j.base ?? "default"})`
+        : j.kind === "role"
+          ? `role ${j.role}`
+          : "digest";
     const retry = j.retryAt ? `  retryAt=${j.retryAt}` : "";
     console.log(`${j.id}  ${what}  added=${j.addedAt}${retry}`);
   }

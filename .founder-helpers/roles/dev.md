@@ -23,13 +23,27 @@ project-specific lands here. The team edits this file itself as it learns. Commi
   you pass. Any code or test that tunes lock staleness below 2s silently gets
   2000ms instead — budget retry timeouts against that real floor, not the
   number you passed in.
-- `npm run format` rewrites ALL of `src/**` + `test/**`, and ~15 committed
-  files are currently prettier-dirty — running it silently drags them into
-  your diff. Run it, then `git restore` everything except your own files
-  before committing (checked 2026-09-07).
+- `npm run format` rewrites ALL of `src/**` + `test/**`. The 15 committed
+  files that used to be prettier-dirty were formatted in #32, so on a clean
+  main the command is now a no-op and safe to run. If it does touch files you
+  did not edit, main has drifted again: commit that as its own
+  `style: prettier format` commit rather than mixing it into your diff
+  (checked 2026-09-08).
 - `npx <anything>` needs an approval prompt that a headless run cannot
   answer. To run one test file use `npm test -- <path>`, which goes through
   the allowed `npm` script.
+- CI does NOT run on `team/*` pushes: `.github/workflows/ci.yml` triggers only
+  on `push` to `main` and on `pull_request`, and this repo opens no PRs. So an
+  issue that says "verify on the CI run your branch push triggers" cannot be
+  satisfied from a dev run — `gh run list --branch team/issue-N` stays empty.
+  Verify workflow edits by reading the upstream action manifest (e.g.
+  `gh api repos/actions/checkout/contents/action.yml?ref=v5` → `runs.using`),
+  and leave the live confirmation to the PM's post-merge run on main.
+- A green local `npm test` on this Windows box does NOT imply a green CI
+  windows-latest leg: `test/integration/runner.test.ts` fails there
+  intermittently (`expected '' to contain 'RESUME_ARG:none'`) while passing
+  locally. Check `gh run list --limit 5` before blaming your own diff for a
+  red main (seen 2026-09-08 on run 34193299638).
 - Fake timers work against the transport loop (`vi.useFakeTimers()` fakes
   `Date` too, which `sleep()` needs), but the loop only unwinds if the fetch
   mock rejects on `signal`'s abort — otherwise `stop()` awaits `loopDone`

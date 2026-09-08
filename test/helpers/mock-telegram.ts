@@ -64,7 +64,9 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-export async function startMockTelegram(defaultChatId: number | string = 42): Promise<MockTelegram> {
+export async function startMockTelegram(
+  defaultChatId: number | string = 42,
+): Promise<MockTelegram> {
   let nextUpdateId = 1;
   const updates: StoredUpdate[] = [];
   const state = {
@@ -175,7 +177,11 @@ export async function startMockTelegram(defaultChatId: number | string = 42): Pr
       const id = nextUpdateId++;
       updates.push({
         update_id: id,
-        message: { chat: { id: chatId, first_name: "Denis" }, text, date: Math.floor(Date.now() / 1000) },
+        message: {
+          chat: { id: chatId, first_name: "Denis" },
+          text,
+          date: Math.floor(Date.now() / 1000),
+        },
       });
       return id;
     },

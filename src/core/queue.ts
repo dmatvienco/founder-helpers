@@ -16,10 +16,7 @@ export function saveQueue(file: string, queue: Queue): void {
   writeJsonAtomic(file, queue, QueueSchema);
 }
 
-export function addJob(
-  file: string,
-  job: Omit<QueueJob, "id" | "addedAt">,
-): QueueJob {
+export function addJob(file: string, job: Omit<QueueJob, "id" | "addedAt">): QueueJob {
   const queue = loadQueue(file);
   const full: QueueJob = {
     ...job,

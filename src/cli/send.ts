@@ -24,9 +24,7 @@ export async function sendFromProject(projectRoot: string, opts: SendOptions): P
     opts.apiBase ? { apiBase: opts.apiBase } : {},
   );
   if (opts.photo) {
-    const caption = opts.captionFile
-      ? readFileSync(opts.captionFile, "utf8").trim()
-      : undefined;
+    const caption = opts.captionFile ? readFileSync(opts.captionFile, "utf8").trim() : undefined;
     await transport.sendPhoto(opts.photo, caption);
   }
   const text = opts.text ?? (opts.file ? readFileSync(opts.file, "utf8").trim() : undefined);

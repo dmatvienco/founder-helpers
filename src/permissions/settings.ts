@@ -55,6 +55,10 @@ export function writeClaudeSettings(
 ): string {
   const file = path.join(stateRoot, "claude-settings.json");
   mkdirSync(stateRoot, { recursive: true });
-  writeFileSync(file, `${JSON.stringify(generateClaudeSettings(config, ledger), null, 2)}\n`, "utf8");
+  writeFileSync(
+    file,
+    `${JSON.stringify(generateClaudeSettings(config, ledger), null, 2)}\n`,
+    "utf8",
+  );
   return file;
 }

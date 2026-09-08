@@ -184,7 +184,9 @@ export async function statusCommand(args: string[]): Promise<number> {
   try {
     const ledger = loadLedger(projectRoot);
     const active = ledger.grants.filter((g) => g.granted && !g.revoked);
-    console.log(`standing grants: ${active.length ? active.map((g) => g.scope).join(", ") : "none (modest mode)"}`);
+    console.log(
+      `standing grants: ${active.length ? active.map((g) => g.scope).join(", ") : "none (modest mode)"}`,
+    );
   } catch {
     console.log("standing grants: ledger unreadable");
   }

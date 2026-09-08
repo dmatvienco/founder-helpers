@@ -44,7 +44,10 @@ function writeHeartbeat(repo: string, opts: PathsOptions, commitHash: string | n
   );
 }
 
-function writeConfig(repo: string, overrides: Partial<{ enabled: boolean; cron: string }> = {}): void {
+function writeConfig(
+  repo: string,
+  overrides: Partial<{ enabled: boolean; cron: string }> = {},
+): void {
   const config = ProjectConfigSchema.parse({
     integrationBranch: "main",
     digest: { enabled: overrides.enabled ?? true, cron: overrides.cron ?? "0 8 * * *" },
@@ -56,7 +59,13 @@ function writeConfig(repo: string, overrides: Partial<{ enabled: boolean; cron: 
   );
 }
 
-function writeRun(repo: string, opts: PathsOptions, id: string, role: string, status: string): void {
+function writeRun(
+  repo: string,
+  opts: PathsOptions,
+  id: string,
+  role: string,
+  status: string,
+): void {
   const sp = statePaths(repo, opts);
   const record = RunRecordSchema.parse({
     id,
@@ -72,7 +81,13 @@ describe("gatherStatus", () => {
     const { repo, opts } = makeProject();
     const data = gatherStatus(repo, opts);
     expect(data).toEqual({
-      daemon: { running: false, pid: null, heartbeatAgeSec: null, commit: null, commitsBehind: null },
+      daemon: {
+        running: false,
+        pid: null,
+        heartbeatAgeSec: null,
+        commit: null,
+        commitsBehind: null,
+      },
       queue: [],
       lastRuns: [],
       grants: [],
@@ -184,7 +199,13 @@ describe("statusCommand --json", () => {
       expect(printed.split("\n")).toHaveLength(1); // single line, nothing wrapped around it
       const parsed = JSON.parse(printed);
       expect(parsed).toEqual({
-        daemon: { running: false, pid: null, heartbeatAgeSec: null, commit: null, commitsBehind: null },
+        daemon: {
+          running: false,
+          pid: null,
+          heartbeatAgeSec: null,
+          commit: null,
+          commitsBehind: null,
+        },
         queue: [{ id: expect.any(String), kind: "issue", issue: 8 }],
         lastRuns: [],
         grants: [],

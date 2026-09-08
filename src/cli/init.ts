@@ -7,7 +7,12 @@ import { pickModel } from "./model-picker.js";
 import { pairTelegram, type PairResult } from "./pair.js";
 import { loadSecrets, saveSecrets } from "../state/secrets.js";
 import { writeJsonAtomic } from "../state/atomic.js";
-import { projectConfigDir, statePaths, type PathsOptions, type StatePaths } from "../state/paths.js";
+import {
+  projectConfigDir,
+  statePaths,
+  type PathsOptions,
+  type StatePaths,
+} from "../state/paths.js";
 import {
   LedgerSchema,
   ProjectConfigSchema,
@@ -23,7 +28,13 @@ function templatesDir(): string {
 }
 
 function skillDir(): string {
-  return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "skill", "founder-helpers");
+  return path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "skill",
+    "founder-helpers",
+  );
 }
 
 /**
@@ -124,16 +135,20 @@ export function runInit(projectRoot: string, opts: PathsOptions = {}): InitResul
 
   const ledgerFile = path.join(configDir, "permissions.json");
   writeOnce(ledgerFile, () => {
-    writeFileSync(
-      ledgerFile,
-      `${JSON.stringify(LedgerSchema.parse({}), null, 2)}\n`,
-      "utf8",
-    );
+    writeFileSync(ledgerFile, `${JSON.stringify(LedgerSchema.parse({}), null, 2)}\n`, "utf8");
   });
 
   // State dir (outside the repo): structure + code-owned files.
   const sp = statePaths(projectRoot, opts);
-  for (const dir of [sp.root, sp.runsDir, sp.outboxDir, sp.pmDir, sp.devDir, sp.logsDir, sp.imagesDir]) {
+  for (const dir of [
+    sp.root,
+    sp.runsDir,
+    sp.outboxDir,
+    sp.pmDir,
+    sp.devDir,
+    sp.logsDir,
+    sp.imagesDir,
+  ]) {
     mkdirSync(dir, { recursive: true });
   }
   if (!existsSync(sp.transportStateFile)) {
