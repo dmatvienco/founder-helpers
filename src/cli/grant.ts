@@ -16,7 +16,9 @@ export async function grantCommand(args: string[]): Promise<number> {
       },
     });
     if (!values.scope || !values.quote) {
-      console.error('Usage: fh grant record --scope <scope> --quote "<founder\'s exact words>" [--conditions "..."]');
+      console.error(
+        'Usage: fh grant record --scope <scope> --quote "<founder\'s exact words>" [--conditions "..."]',
+      );
       console.error(`Known scopes (enforced in code): ${KNOWN_SCOPES.join(", ")}`);
       console.error("Freeform scopes are allowed too — they bind through the prompt only.");
       return 1;
@@ -33,7 +35,9 @@ export async function grantCommand(args: string[]): Promise<number> {
         console.log("note: freeform scope — enforced via the prompt, not the settings layer");
       }
       console.log(`revoke any time: fh grant revoke ${grant.id}`);
-      console.log("permissions settings regenerated; commit .founder-helpers/ to keep the audit trail");
+      console.log(
+        "permissions settings regenerated; commit .founder-helpers/ to keep the audit trail",
+      );
       return 0;
     } catch (err) {
       console.error(err instanceof Error ? err.message : String(err));
@@ -66,7 +70,9 @@ export async function grantCommand(args: string[]): Promise<number> {
   for (const g of ledger.grants) {
     const state = g.revoked ? `REVOKED ${g.revoked}` : "active";
     console.log(`${g.id}  [${g.scope}]  ${state}`);
-    console.log(`    ${g.date}: "${g.quote}"${g.conditions ? `  (conditions: ${g.conditions})` : ""}`);
+    console.log(
+      `    ${g.date}: "${g.quote}"${g.conditions ? `  (conditions: ${g.conditions})` : ""}`,
+    );
   }
   return 0;
 }

@@ -16,7 +16,10 @@ describe("writeJsonAtomic / readJsonWithRecovery", () => {
   it("round-trips a valid object", () => {
     const file = tmpFile();
     writeJsonAtomic<T>(file, { n: 1, s: "a" }, Schema);
-    expect(readJsonWithRecovery(file, Schema)).toEqual({ value: { n: 1, s: "a" }, recovered: false });
+    expect(readJsonWithRecovery(file, Schema)).toEqual({
+      value: { n: 1, s: "a" },
+      recovered: false,
+    });
   });
 
   it("refuses to write an invalid object and leaves the previous file intact", () => {

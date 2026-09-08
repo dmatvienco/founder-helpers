@@ -34,7 +34,7 @@ async function tg<T>(apiBase: string, token: string, method: string): Promise<T>
 
 export async function pairTelegram(
   io: PairIo,
-  opts: { apiBase?: string; projectName: string; maxWaitMs?: number } ,
+  opts: { apiBase?: string; projectName: string; maxWaitMs?: number },
 ): Promise<PairResult> {
   const apiBase = opts.apiBase ?? "https://api.telegram.org";
 
@@ -71,7 +71,7 @@ export async function pairTelegram(
   }
   if (chatId === undefined) {
     throw new Error(
-      "No message arrived in time. Run \"fh init\" again when you're ready to send one.",
+      'No message arrived in time. Run "fh init" again when you\'re ready to send one.',
     );
   }
   const lastUpdateId = offset - 1;

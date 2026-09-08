@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { KNOWN_MODELS, pickModel } from "../../src/cli/model-picker.js";
 
-function io(answers: string[]): { ask: (q: string) => Promise<string>; say: (l: string) => void; said: string[] } {
+function io(answers: string[]): {
+  ask: (q: string) => Promise<string>;
+  say: (l: string) => void;
+  said: string[];
+} {
   const said: string[] = [];
   const queue = [...answers];
   return {

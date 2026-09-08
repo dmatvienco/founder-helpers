@@ -39,7 +39,9 @@ describe("parseNpmDownloadPoint", () => {
         package: "founder-helpers",
       }),
     ).toEqual({ downloads: 0, start: "2026-08-31", end: "2026-09-06" });
-    expect(parseNpmDownloadPoint({ downloads: 42, start: "2026-08-08", end: "2026-09-06" })).toEqual({
+    expect(
+      parseNpmDownloadPoint({ downloads: 42, start: "2026-08-08", end: "2026-09-06" }),
+    ).toEqual({
       downloads: 42,
       start: "2026-08-08",
       end: "2026-09-06",
@@ -73,7 +75,14 @@ describe("collectGithub", () => {
     const execFn = async (file, args) => {
       expect(file).toBe("gh");
       expect(args).toEqual(["api", "repos/dmatvienco/founder-helpers"]);
-      return { stdout: JSON.stringify({ stargazers_count: 1, forks_count: 2, subscribers_count: 3, open_issues_count: 4 }) };
+      return {
+        stdout: JSON.stringify({
+          stargazers_count: 1,
+          forks_count: 2,
+          subscribers_count: 3,
+          open_issues_count: 4,
+        }),
+      };
     };
     await expect(collectGithub("dmatvienco/founder-helpers", execFn)).resolves.toEqual({
       stars: 1,

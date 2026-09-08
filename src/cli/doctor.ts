@@ -14,7 +14,11 @@ export interface Check {
   detail: string;
 }
 
-function jsonFileCheck(name: string, file: string, schema: { parse: (v: unknown) => unknown }): Check {
+function jsonFileCheck(
+  name: string,
+  file: string,
+  schema: { parse: (v: unknown) => unknown },
+): Check {
   if (!existsSync(file)) {
     return { name, level: "fail", detail: `${file} missing — run "fh init"` };
   }
@@ -76,7 +80,9 @@ export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[]
   checks.push({
     name: "git repo",
     level: inRepo ? "ok" : "fail",
-    detail: inRepo ? `${projectRoot} (default branch: ${defaultBranch(projectRoot)})` : `${projectRoot} is not a git repository`,
+    detail: inRepo
+      ? `${projectRoot} (default branch: ${defaultBranch(projectRoot)})`
+      : `${projectRoot} is not a git repository`,
   });
 
   checks.push({
@@ -99,7 +105,9 @@ export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[]
 
   const configDir = projectConfigDir(projectRoot);
   checks.push(jsonFileCheck("config", path.join(configDir, "config.json"), ProjectConfigSchema));
-  checks.push(jsonFileCheck("permissions ledger", path.join(configDir, "permissions.json"), LedgerSchema));
+  checks.push(
+    jsonFileCheck("permissions ledger", path.join(configDir, "permissions.json"), LedgerSchema),
+  );
 
   const sp = statePaths(projectRoot, opts);
   try {
@@ -109,7 +117,9 @@ export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[]
     checks.push({
       name: "state dir",
       level: existsSync(sp.root) ? "fail" : "warn",
-      detail: existsSync(sp.root) ? `${sp.root} not writable` : `${sp.root} missing — run "fh init"`,
+      detail: existsSync(sp.root)
+        ? `${sp.root} not writable`
+        : `${sp.root} missing — run "fh init"`,
     });
   }
 
@@ -123,7 +133,11 @@ export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[]
     // absent is fine
   }
   if (logBytes > 20 * 1024 * 1024) {
-    checks.push({ name: "logs", level: "warn", detail: `${Math.round(logBytes / 1e6)} MB in ${sp.logsDir}` });
+    checks.push({
+      name: "logs",
+      level: "warn",
+      detail: `${Math.round(logBytes / 1e6)} MB in ${sp.logsDir}`,
+    });
   }
 
   return checks;
