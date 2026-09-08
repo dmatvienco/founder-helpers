@@ -35,6 +35,10 @@ project-specific lands here. The team edits this file itself as it learns. Commi
   mock rejects on `signal`'s abort — otherwise `stop()` awaits `loopDone`
   forever and the run hangs to timeout. Stop with the timers still fake:
   `const p = t.stop(); await vi.advanceTimersByTimeAsync(1000); await p;`
+- `gh issue view <N> --comments` prints NOTHING here (3/3 on 2026-09-08) —
+  exit 0, empty output, which reads exactly like an empty issue. Plain
+  `gh issue view <N>` works; for the body plus comments in one go use
+  `gh issue view <N> --json number,title,state,labels,body,comments`.
 
 ## Build, test and smoke procedures
 
