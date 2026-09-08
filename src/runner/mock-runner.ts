@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { SESSION_LIMIT_RE, type Runner, type RunResult, type RunSpec } from "./runner.js";
+import type { Runner, RunResult, RunSpec } from "./runner.js";
+import { detectSessionLimit } from "./session-limit.js";
 
 /**
  * Scripted stand-in for the claude CLI. The primary test vehicle: CI must
@@ -75,17 +76,17 @@ export class MockRunner implements Runner {
     writeFileSync(outputLog, stdout, "utf8");
     appendFileSync(outputLog, "\n[mock] done\n", "utf8");
     const exitCode = scenario.exitCode ?? 0;
-    const status: RunResult["status"] = SESSION_LIMIT_RE.test(stdout)
-      ? "limit"
-      : exitCode === 0
-        ? "ok"
-        : "error";
+    // Same detection path as the real runner — a scenario drives the reset
+    // time through its stdout, exactly like the CLI would print it.
+    const limit = detectSessionLimit(stdout);
+    const status: RunResult["status"] = limit ? "limit" : exitCode === 0 ? "ok" : "error";
     return {
       status,
       exitCode,
       outputLog,
       durationMs: Date.now() - started,
       ...(scenario.sessionId ? { sessionId: scenario.sessionId } : {}),
+      ...(limit ?? {}),
     };
   }
 }

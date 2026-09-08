@@ -6,6 +6,7 @@ import { writeClaudeSettings } from "../permissions/settings.js";
 import { ClaudeRunner } from "../runner/claude-runner.js";
 import { MockRunner, type MockScenario } from "../runner/mock-runner.js";
 import type { ProgressEvent, Runner } from "../runner/runner.js";
+import type { LimitReset } from "../runner/session-limit.js";
 import { writeJsonAtomic } from "../state/atomic.js";
 import { statePaths, type PathsOptions } from "../state/paths.js";
 import {
@@ -51,7 +52,8 @@ export interface RunRoleOptions {
   onProgress?: (event: ProgressEvent) => void;
 }
 
-export interface RunRoleOutcome {
+/** `limitReset*` are populated for `status: "limit"` runs — see session-limit.ts. */
+export interface RunRoleOutcome extends LimitReset {
   record: RunRecord;
   runDir: string;
   outputLog: string;
@@ -143,6 +145,8 @@ export async function runRole(
     runDir,
     outputLog: result.outputLog,
     ...(result.sessionId ? { sessionId: result.sessionId } : {}),
+    ...(result.limitResetText ? { limitResetText: result.limitResetText } : {}),
+    ...(result.limitResetAt ? { limitResetAt: result.limitResetAt } : {}),
   };
 }
 

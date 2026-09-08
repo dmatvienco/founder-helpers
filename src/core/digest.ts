@@ -7,6 +7,7 @@ import type { ProjectConfig } from "../state/schema.js";
 import { flushOutbox } from "../transport/outbox.js";
 import type { Transport } from "../transport/transport.js";
 import type { Runner } from "../runner/runner.js";
+import type { LimitReset } from "../runner/session-limit.js";
 
 const execAsync = promisify(exec);
 
@@ -20,7 +21,7 @@ export interface DigestOptions {
   runner?: Runner;
 }
 
-export interface DigestResult {
+export interface DigestResult extends LimitReset {
   /** "limit"/"auth" mean a pipeline step hit that condition and the run stopped early — the caller keeps the job queued instead of dropping it. */
   status: "ok" | "limit" | "auth";
 }
@@ -63,7 +64,11 @@ export async function runDigest(o: DigestOptions): Promise<DigestResult> {
     });
     o.logger.info(`digest: role ${step.role} status=${res.record.status}`);
     if (res.record.status === "limit" || res.record.status === "auth") {
-      return { status: res.record.status };
+      return {
+        status: res.record.status,
+        ...(res.limitResetText ? { limitResetText: res.limitResetText } : {}),
+        ...(res.limitResetAt ? { limitResetAt: res.limitResetAt } : {}),
+      };
     }
   }
   const sent = await flushOutbox(o.transport, o.paths.outboxDir, o.logger);

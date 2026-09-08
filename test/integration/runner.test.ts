@@ -129,6 +129,30 @@ describe("runRole with the ClaudeRunner (fake claude binaries)", () => {
     expect(outcome.record.status).toBe("limit");
   });
 
+  it("captures the reset time printed next to the session-limit phrase (#30)", async () => {
+    const { repo, stateBase } = makeProject();
+    const outcome = await runRole(repo, "pm", {
+      paths: { stateBase },
+      ...fake("limit-reset.cjs"),
+    });
+    expect(outcome.record.status).toBe("limit");
+    expect(outcome.limitResetText).toBe("11:30am (UTC)");
+    const at = new Date(outcome.limitResetAt ?? "");
+    expect(at.getTime()).toBeGreaterThan(Date.now()); // the NEXT 11:30 UTC, never a past one
+    expect([at.getUTCHours(), at.getUTCMinutes()]).toEqual([11, 30]);
+  });
+
+  it("leaves the reset undefined when the CLI printed no time (#30)", async () => {
+    const { repo, stateBase } = makeProject();
+    const outcome = await runRole(repo, "pm", {
+      paths: { stateBase },
+      ...fake("limit.cjs"),
+    });
+    expect(outcome.record.status).toBe("limit");
+    expect(outcome.limitResetText).toBeUndefined();
+    expect(outcome.limitResetAt).toBeUndefined();
+  });
+
   it("detects an expired OAuth session via the structured error field, not exit code alone (#21)", async () => {
     const { repo, stateBase } = makeProject();
     const outcome = await runRole(repo, "pm", {
@@ -306,6 +330,19 @@ describe("MockRunner", () => {
     expect(
       (await runRole(repo, "pm", { paths: { stateBase }, runner: limitRunner })).record.status,
     ).toBe("limit");
+  });
+
+  it("carries the reset time from a scenario's stdout, like the real runner does (#30)", async () => {
+    const { repo, stateBase } = makeProject();
+    const sp = mkdtempSync(path.join(tmpdir(), "fh-mockbase-reset-"));
+    const runner = new MockRunner(
+      [{ role: "pm", stdout: "You've hit your session limit · resets 1pm (Europe/Amsterdam)" }],
+      sp,
+    );
+    const outcome = await runRole(repo, "pm", { paths: { stateBase }, runner });
+    expect(outcome.record.status).toBe("limit");
+    expect(outcome.limitResetText).toBe("1pm (Europe/Amsterdam)");
+    expect(Date.parse(outcome.limitResetAt ?? "")).toBeGreaterThan(Date.now());
   });
 
   it("authFailed scenario resolves as auth (#21)", async () => {

@@ -1,3 +1,5 @@
+import type { LimitReset } from "./session-limit.js";
+
 export type RunStatus = "ok" | "timeout" | "limit" | "auth" | "error";
 
 export interface RunSpec {
@@ -32,7 +34,8 @@ export interface ProgressEvent {
   text: string;
 }
 
-export interface RunResult {
+/** `limitReset*` are populated for `status: "limit"` runs — see session-limit.ts. */
+export interface RunResult extends LimitReset {
   status: RunStatus;
   exitCode: number | null;
   /** Path to the captured stdout+stderr log. */
@@ -45,6 +48,3 @@ export interface RunResult {
 export interface Runner {
   run(spec: RunSpec): Promise<RunResult>;
 }
-
-/** The phrase the claude CLI prints when the shared session limit is hit. */
-export const SESSION_LIMIT_RE = /hit your session limit/i;

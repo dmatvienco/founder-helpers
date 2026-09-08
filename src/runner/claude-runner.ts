@@ -2,7 +2,8 @@ import { createWriteStream, mkdirSync } from "node:fs";
 import path from "node:path";
 import { spawnTracked } from "../util/proc.js";
 import { treeKill } from "../util/tree-kill.js";
-import { SESSION_LIMIT_RE, type Runner, type RunResult, type RunSpec } from "./runner.js";
+import type { Runner, RunResult, RunSpec } from "./runner.js";
+import { detectSessionLimit } from "./session-limit.js";
 import { describeToolUse, parseStreamJsonLine, splitLines } from "./stream-json.js";
 
 const TAIL_LIMIT = 64 * 1024; // keep the last 64KB of extracted text for status detection
@@ -121,11 +122,12 @@ export class ClaudeRunner implements Runner {
     clearTimeout(timer);
     stream.end();
 
+    const limit = detectSessionLimit(textTail);
     const status: RunResult["status"] = timedOut
       ? "timeout"
       : authFailed
         ? "auth"
-        : SESSION_LIMIT_RE.test(textTail)
+        : limit
           ? "limit"
           : exitCode === 0
             ? "ok"
@@ -137,6 +139,7 @@ export class ClaudeRunner implements Runner {
       outputLog,
       durationMs: Date.now() - started,
       ...(sessionId ? { sessionId } : {}),
+      ...(status === "limit" && limit ? limit : {}),
     };
   }
 }
