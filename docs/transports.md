@@ -8,7 +8,7 @@ start(onMessage)   // sequential delivery; rejection = redelivery
 stop()
 send(text)         // implementation chunks as needed
 sendPhoto(path, caption?)
-setTyping(on)
+setTyping(on)      // stopping may return a promise: resolved = no tick in flight
 startProgress(initialText)  // opens one message for a long run's live progress
 updateProgress(text)        // latest short action line; throttled/coalesced into edits
 endProgress()

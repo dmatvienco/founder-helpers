@@ -32,6 +32,14 @@ export class TelegramTransport implements Transport {
   private stopped = true;
   private loopDone: Promise<void> = Promise.resolve();
   private typingTimer: NodeJS.Timeout | undefined;
+  /**
+   * Ticks that have been sent but not yet answered. Clearing the interval
+   * does not recall a request already on the wire, so "typing stopped" was
+   * never observable: a tick fired a moment before `setTyping(false)` still
+   * landed afterwards (#31). Holding the promises makes the stop awaitable —
+   * and keeps the connection pool alive until they settle.
+   */
+  private typingInFlight = new Set<Promise<void>>();
   private progressTimer: NodeJS.Timeout | undefined;
   private progressMessageId: number | undefined;
   private progressLatest = "";
@@ -238,10 +246,13 @@ export class TelegramTransport implements Transport {
 
   async stop(): Promise<void> {
     this.stopped = true;
-    this.setTyping(false);
+    const typingStopped = this.setTyping(false);
     this.endProgress();
     this.inFlight?.abort();
     await this.loopDone;
+    // Before the pool goes away: destroying it mid-request would abort a tick
+    // that was already on the wire.
+    await typingStopped;
     await this.agent.destroy().catch(() => {});
   }
 
@@ -291,20 +302,31 @@ export class TelegramTransport implements Transport {
     }
   }
 
-  setTyping(on: boolean): void {
+  /**
+   * Still best-effort and still safe to call fire-and-forget. The returned
+   * promise is for callers that need the stop to be real (shutdown, tests):
+   * it resolves when every tick outstanding at that moment has landed, so
+   * afterwards no sendChatAction of ours is on the wire.
+   */
+  setTyping(on: boolean): Promise<void> {
     if (!on) {
       if (this.typingTimer) clearInterval(this.typingTimer);
       this.typingTimer = undefined;
-      return;
+      // Snapshot: the timer is already cleared, so nothing joins the set now.
+      return Promise.all([...this.typingInFlight]).then(() => {});
     }
-    if (this.typingTimer) return;
+    if (this.typingTimer) return Promise.resolve();
     const tick = (): void => {
-      void this.call("sendChatAction", { chat_id: this.o.chatId, action: "typing" }).catch(
+      const done = this.call("sendChatAction", { chat_id: this.o.chatId, action: "typing" }).then(
         () => {},
+        () => {}, // a dropped indicator is not worth surfacing
       );
+      this.typingInFlight.add(done);
+      void done.then(() => this.typingInFlight.delete(done));
     };
     tick();
     this.typingTimer = setInterval(tick, this.o.typingIntervalMs ?? 4000);
+    return Promise.resolve();
   }
 
   async startProgress(initialText: string): Promise<void> {

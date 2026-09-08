@@ -26,8 +26,13 @@ export interface Transport {
   /** Send founder-facing text (chunked by the implementation as needed). */
   send(text: string): Promise<void>;
   sendPhoto(filePath: string, caption?: string): Promise<void>;
-  /** Keep a "typing…" indicator alive while composing (best effort). */
-  setTyping(on: boolean): void;
+  /**
+   * Keep a "typing…" indicator alive while composing (best effort). Callers
+   * may ignore the result; an implementation that talks to the network may
+   * return a promise that resolves once a stop is real — i.e. no indicator
+   * request of its own is still in flight.
+   */
+  setTyping(on: boolean): void | Promise<void>;
   /**
    * Live progress for a long headless run: `startProgress` opens one
    * message, `updateProgress` feeds it the latest short action line
