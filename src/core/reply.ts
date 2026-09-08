@@ -5,8 +5,9 @@ import { existsSync } from "node:fs";
 import { writeJsonAtomic } from "../state/atomic.js";
 import { z } from "zod";
 import type { ProgressEvent, Runner } from "../runner/runner.js";
+import { limitPauseMs } from "../runner/session-limit.js";
 import { flushOutbox } from "../transport/outbox.js";
-import type { InboundMessage, Transport } from "../transport/transport.js";
+import { RedeliverLater, type InboundMessage, type Transport } from "../transport/transport.js";
 import type { Worker } from "./worker.js";
 import {
   loadPmSession,
@@ -19,6 +20,9 @@ import { ledgerFile } from "../permissions/ledger.js";
 import path from "node:path";
 
 const PM_ROLE = "pm";
+
+/** Blind back-off, used only when the CLI announced no reset time. */
+const DEFAULT_LIMIT_RETRY_MS = 15 * 60_000;
 
 /** Files the PM's role prompt embeds — watched so a resumed turn can skip re-sending them when unchanged. */
 function watchedPromptFiles(projectRoot: string): Record<string, string> {
@@ -135,9 +139,10 @@ export class ReplyLane {
         savePmSessionId(this.o.paths.pmSessionFile, res.sessionId, watchedFileMtimes(watchedFiles));
       }
 
+      const fallback = this.o.limitRetryMs ?? DEFAULT_LIMIT_RETRY_MS;
+
       if (res.record.status === "auth") {
-        const wait = this.o.limitRetryMs ?? 15 * 60_000;
-        this.pauseUntil = Date.now() + wait;
+        this.pauseUntil = Date.now() + fallback;
         if (!this.authNotified) {
           this.authNotified = true;
           await this.o.transport.send(
@@ -145,19 +150,24 @@ export class ReplyLane {
               "everything resumes automatically. Your message is queued.",
           );
         }
-        throw new Error("auth expired"); // redeliver after the pause
+        // Waiting for the founder, not a broken loop — redeliver after the pause.
+        throw new RedeliverLater("auth expired");
       }
 
       if (res.record.status === "limit") {
-        const wait = this.o.limitRetryMs ?? 15 * 60_000;
-        this.pauseUntil = Date.now() + wait;
+        // One wait that ends when the limit actually lifts, instead of blind
+        // 15-minute retries that all die in a single turn (#30).
+        this.pauseUntil = Date.now() + limitPauseMs(res.limitResetAt, Date.now(), fallback);
         if (!this.limitNotified) {
           this.limitNotified = true;
           await this.o.transport.send(
-            "⏳ Claude session limit reached — your message is queued, I'll answer as soon as it lifts.",
+            res.limitResetText
+              ? `⏳ Claude session limit reached — resets ${res.limitResetText}. ` +
+                  `Your message is queued, I'll answer right after.`
+              : "⏳ Claude session limit reached — your message is queued, I'll answer as soon as it lifts.",
           );
         }
-        throw new Error("session limit"); // redeliver after the pause
+        throw new RedeliverLater("session limit"); // redeliver after the pause
       }
 
       const sent = await flushOutbox(this.o.transport, this.o.paths.outboxDir, this.o.logger);

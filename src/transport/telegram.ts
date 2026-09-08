@@ -6,7 +6,7 @@ import type { Logger } from "../state/log.js";
 import { statePaths, type PathsOptions } from "../state/paths.js";
 import { TransportStateSchema } from "../state/schema.js";
 import { requireTelegram } from "../state/secrets.js";
-import type { InboundMessage, Transport } from "./transport.js";
+import { isRedeliverLater, type InboundMessage, type Transport } from "./transport.js";
 
 const CHUNK = 3900; // Telegram hard limit is 4096; leave headroom like the predecessor
 const CAPTION_LIMIT = 1024;
@@ -205,6 +205,16 @@ export class TelegramTransport implements Transport {
       } catch (err) {
         if (this.stopped) break;
         const msg = err instanceof Error ? err.message : String(err);
+        // A wait-only condition (session limit, expired login) asked for
+        // redelivery on purpose — nothing is broken and the founder already
+        // has a notice that says so. Sleep and poll again without touching
+        // the streak, the alert or the connection pool: for hours of session
+        // limit the old path raised a false "failed 15x in a row" alarm (#30).
+        if (isRedeliverLater(err)) {
+          this.o.logger?.info(`transport loop: message held for redelivery (${msg})`);
+          await this.sleep(errorSleep);
+          continue;
+        }
         streak = msg === lastErr ? streak + 1 : 1;
         lastErr = msg;
         this.o.logger?.warn(`transport loop error (${streak}x): ${msg}`);

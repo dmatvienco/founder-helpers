@@ -8,8 +8,12 @@ import type { ProjectConfig, QueueJob } from "../state/schema.js";
 import { flushOutbox } from "../transport/outbox.js";
 import type { Transport } from "../transport/transport.js";
 import type { Runner } from "../runner/runner.js";
+import { limitPauseMs, type LimitReset } from "../runner/session-limit.js";
 import { loadQueue, nextEligibleJob, removeJob, setRetry } from "./queue.js";
 import { runDigest } from "./digest.js";
+
+/** Blind back-off, used only when the CLI announced no reset time. */
+const DEFAULT_LIMIT_RETRY_MS = 15 * 60_000;
 
 export interface WorkerOptions {
   projectRoot: string;
@@ -109,7 +113,7 @@ export class Worker {
       return;
     }
     if (dev.record.status === "limit") {
-      this.pauseForLimit(job);
+      this.pauseForLimit(job, dev);
       return;
     }
     if (dev.record.status !== "ok") {
@@ -135,7 +139,7 @@ export class Worker {
       return;
     }
     if (review.record.status === "limit") {
-      this.pauseForLimit(job);
+      this.pauseForLimit(job, review);
       return;
     }
 
@@ -179,7 +183,7 @@ export class Worker {
       return;
     }
     if (result.status === "limit") {
-      this.pauseForLimit(job);
+      this.pauseForLimit(job, result);
       return;
     }
     removeJob(this.o.paths.queueFile, job.id);
@@ -200,7 +204,7 @@ export class Worker {
       return;
     }
     if (res.record.status === "limit") {
-      this.pauseForLimit(job);
+      this.pauseForLimit(job, res);
       return;
     }
     removeJob(this.o.paths.queueFile, job.id);
@@ -211,23 +215,31 @@ export class Worker {
     });
   }
 
-  /** Claude session limit: keep the job, back off, tell the founder once. */
-  private pauseForLimit(job: QueueJob): void {
-    const retryMs = this.o.limitRetryMs ?? 15 * 60_000;
+  /**
+   * Claude session limit: keep the job, back off until the announced reset
+   * (blind 15-minute fallback when the CLI named none), tell the founder once
+   * — with the reset time in it when we know it (#30).
+   */
+  private pauseForLimit(job: QueueJob, limit: LimitReset = {}): void {
+    const fallback = this.o.limitRetryMs ?? DEFAULT_LIMIT_RETRY_MS;
+    const retryMs = limitPauseMs(limit.limitResetAt, Date.now(), fallback);
     const retryAt = new Date(Date.now() + retryMs).toISOString();
     setRetry(this.o.paths.queueFile, job.id, retryAt);
     this.o.logger.warn(`worker: session limit, job ${job.id} retries at ${retryAt}`);
     if (!this.limitNotified) {
       this.limitNotified = true;
       void this.trySend(
-        `⏳ Claude session limit reached — ${describeJob(job)} stays queued and retries automatically.`,
+        limit.limitResetText
+          ? `⏳ Claude session limit reached — resets ${limit.limitResetText}. ` +
+              `${describeJob(job)} stays queued and retries automatically.`
+          : `⏳ Claude session limit reached — ${describeJob(job)} stays queued and retries automatically.`,
       );
     }
   }
 
   /** Expired/unrefreshable OAuth session (#21): keep the job, back off, tell the founder once with the fix. */
   private pauseForAuth(job: QueueJob): void {
-    const retryMs = this.o.limitRetryMs ?? 15 * 60_000;
+    const retryMs = this.o.limitRetryMs ?? DEFAULT_LIMIT_RETRY_MS;
     const retryAt = new Date(Date.now() + retryMs).toISOString();
     setRetry(this.o.paths.queueFile, job.id, retryAt);
     this.o.logger.warn(`worker: auth expired, job ${job.id} retries at ${retryAt}`);

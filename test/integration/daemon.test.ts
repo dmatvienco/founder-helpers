@@ -70,6 +70,14 @@ async function boot(
   return handle;
 }
 
+/** Session-limit stdout naming a reset `ms` from now, formatted like the CLI's. */
+function limitStdout(ms: number): string {
+  const at = new Date(Date.now() + ms);
+  const hh = String(at.getUTCHours()).padStart(2, "0");
+  const mm = String(at.getUTCMinutes()).padStart(2, "0");
+  return `You've hit your session limit · resets ${hh}:${mm} (UTC)`;
+}
+
 describe("daemon E2E (mock runner + mock telegram)", () => {
   it('full chain: "да 1" -> PM queues issue -> dev+reviewer -> completion carries the verdict', async () => {
     const env = await makeEnv();
@@ -386,6 +394,48 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
     // give the worker a few more ticks: no duplicate notifications
     await new Promise((r) => setTimeout(r, 300));
     expect(env.server.sentMessages.filter((m) => m.text.includes("⏳")).length).toBe(1);
+  });
+
+  it("session limit with a reset time waits for the reset, not the blind fallback (#30)", async () => {
+    const env = await makeEnv();
+    // A 100ms fallback: if the reset were ignored, the job would retry ~10x/s.
+    await boot(env, [{ role: "dev", stdout: limitStdout(3 * 60 * 60_000) }], { limitRetryMs: 100 });
+    addJob(env.sp.queueFile, { kind: "issue", issue: 5, base: "main" });
+
+    await until(
+      () => env.server.sentMessages.some((m) => m.text.includes("⏳")),
+      10000,
+      "limit notification",
+    );
+    const job = loadQueue(env.sp.queueFile).jobs[0];
+    expect(Date.parse(job?.retryAt ?? "") - Date.now()).toBeGreaterThan(2.5 * 60 * 60_000);
+    // The founder is told WHEN, instead of "retries automatically" alone.
+    expect(env.server.sentMessages.find((m) => m.text.includes("⏳"))?.text).toContain("resets");
+  });
+
+  it("reply lane: a session limit with a reset time pauses once and never raises a loop alert (#30)", async () => {
+    const env = await makeEnv();
+    const runner = new MockRunner(
+      [{ role: "pm", stdout: limitStdout(3 * 60 * 60_000) }],
+      env.sp.root,
+    );
+    await boot(env, [], { runner, limitRetryMs: 100, replyMaxAttempts: 3 });
+
+    // "⏳ working on it…" is the progress message — match the notice itself.
+    const notices = (): string[] =>
+      env.server.sentMessages.filter((m) => m.text.includes("session limit")).map((m) => m.text);
+    env.server.pushUpdate("привет");
+    await until(() => notices().length > 0, 10000, "limit notice");
+    expect(notices()[0]).toContain("resets");
+
+    const calls = runner.calls.length;
+    expect(calls).toBe(1);
+    await new Promise((r) => setTimeout(r, 600)); // 6x the fallback: nothing may retry
+    expect(runner.calls.length).toBe(calls);
+    // The old path burned this window on retries that also tripped the
+    // transport's "failed 4x in a row" alarm — a false alarm for a wait.
+    expect(env.server.sentMessages.filter((m) => m.text.includes("in a row"))).toEqual([]);
+    expect(notices().length).toBe(1); // one notice, not one per retry
   });
 
   it("auth-expired session pauses the job with retryAt and notifies once with the fix, then drains once it flips back to ok (#21)", async () => {

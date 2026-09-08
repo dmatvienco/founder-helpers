@@ -44,15 +44,18 @@ project-specific lands here. The team edits this file itself as it learns. Commi
   intermittently (`expected '' to contain 'RESUME_ARG:none'`) while passing
   locally. Check `gh run list --limit 5` before blaming your own diff for a
   red main (seen 2026-09-08 on run 34193299638).
+- `gh issue view <N>` can print NOTHING with exit 0 — plain (twice in a row
+  at the start of run 2026-09-08_06-15-36, fine later in the same run) and
+  with `--comments` (3/3 on 2026-09-08). That reads exactly like an empty
+  issue and is not a permission denial (the same shell runs `gh issue edit`
+  fine). Never conclude the issue is empty: use
+  `gh issue view <N> --json number,title,state,labels,body,comments`
+  (optionally `> <state-dir>/issue.json` and Read the file).
 - Fake timers work against the transport loop (`vi.useFakeTimers()` fakes
   `Date` too, which `sleep()` needs), but the loop only unwinds if the fetch
   mock rejects on `signal`'s abort — otherwise `stop()` awaits `loopDone`
   forever and the run hangs to timeout. Stop with the timers still fake:
   `const p = t.stop(); await vi.advanceTimersByTimeAsync(1000); await p;`
-- `gh issue view <N> --comments` prints NOTHING here (3/3 on 2026-09-08) —
-  exit 0, empty output, which reads exactly like an empty issue. Plain
-  `gh issue view <N>` works; for the body plus comments in one go use
-  `gh issue view <N> --json number,title,state,labels,body,comments`.
 - When the account's usage limit is reached, a role run dies in under a
   second: the run dir holds only `prompt.md` and a short `output.log` ending
   in `"is_error":true … "api_error_status":429`, and no report is written.
@@ -68,6 +71,19 @@ project-specific lands here. The team edits this file itself as it learns. Commi
   that state, so step 0's clean-tree gate passes and nothing looks wrong —
   check `git rev-parse --abbrev-ref HEAD` too (it prints `HEAD` when
   detached) and re-attach before working.
+- A test fixture that hard-codes a wall-clock time and compares the parse
+  against the real `Date.now()` is time-of-day flaky: the two session-limit
+  reset fixtures ("11:30am (UTC)", "1pm (Europe/Amsterdam)") went red only
+  when the suite happened to run within an hour after that clock (#33, seen
+  2026-09-08 13:30 local). Compute the fixture's time from `Date.now()` and
+  assert a range, don't pin a literal clock.
+- `test/integration/telegram.test.ts` "typing keepalive ticks while composing
+  and stops cleanly" used to be timing-sensitive: it counted chat actions
+  across a real `setTimeout(150)`, so under full-suite parallel load one extra
+  keepalive tick could land and it failed with `expected 4 to be 3` (seen on
+  branches without #31 on 2026-09-08). #31 made `setTyping(false)` wait for
+  the tick on the wire and the test awaits it, so on main after that merge a
+  failure here is news, not the known flake.
 
 ## Build, test and smoke procedures
 

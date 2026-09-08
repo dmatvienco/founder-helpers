@@ -4,6 +4,38 @@
  * outbox) must stay channel-agnostic.
  */
 
+/**
+ * "Not processed, try again later" — a deliberate redelivery request from the
+ * message handler for a wait-only condition (Claude session limit, expired
+ * CLI login), as opposed to something actually breaking.
+ *
+ * The offset stays put like after any other rejection, so the message is
+ * still guaranteed not to be lost; what changes is the diagnosis. A transport
+ * must not count this toward its identical-error streak, alert the founder
+ * about it, or recycle its connection pool over it — the founder has already
+ * been told, in words that fit the situation (#30).
+ */
+export class RedeliverLater extends Error {
+  /** Survives module duplication (test bundling, ESM/CJS) where instanceof does not. */
+  readonly redeliverLater = true;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "RedeliverLater";
+  }
+}
+
+export function isRedeliverLater(err: unknown): boolean {
+  if (err instanceof RedeliverLater) return true;
+  // The flag's VALUE, not its presence: `{ redeliverLater: false }` says
+  // "this is NOT a redelivery" and must keep counting as a real failure.
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { redeliverLater?: unknown }).redeliverLater === true
+  );
+}
+
 export interface InboundMessage {
   /** Monotic channel-side id used for offset bookkeeping. */
   updateId: number;
