@@ -141,6 +141,20 @@ export class ReplyLane {
 
       const fallback = this.o.limitRetryMs ?? DEFAULT_LIMIT_RETRY_MS;
 
+      if (res.record.status === "auth" || res.record.status === "limit") {
+        // The PM may have written its answer to the outbox BEFORE hitting the
+        // limit/auth wall this same turn (#34). That answer already exists —
+        // deliver it and finish normally instead of pausing and redelivering
+        // a message that was, in fact, already handled.
+        const sent = await flushOutbox(this.o.transport, this.o.paths.outboxDir, this.o.logger);
+        if (sent > 0) {
+          this.attempts.delete(msg.updateId);
+          this.limitNotified = false;
+          this.authNotified = false;
+          return;
+        }
+      }
+
       if (res.record.status === "auth") {
         this.pauseUntil = Date.now() + fallback;
         if (!this.authNotified) {

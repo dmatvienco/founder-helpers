@@ -438,6 +438,34 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
     expect(notices().length).toBe(1); // one notice, not one per retry
   });
 
+  it("reply lane: a limit hit AFTER the PM already wrote its answer delivers the answer instead of pausing (#34)", async () => {
+    const env = await makeEnv();
+    const runner = new MockRunner(
+      [
+        {
+          role: "pm",
+          writeFiles: [{ path: "outbox/reply.txt", content: "уже ответила" }],
+          stdout: limitStdout(3 * 60 * 60_000),
+        },
+      ],
+      env.sp.root,
+    );
+    await boot(env, [], { runner, limitRetryMs: 100, replyMaxAttempts: 3 });
+
+    env.server.pushUpdate("привет");
+    await until(
+      () => env.server.sentMessages.some((m) => m.text.includes("уже ответила")),
+      10000,
+      "answer delivered despite the limit hit",
+    );
+
+    // No "session limit" notice, no redelivery: the answer already existed.
+    expect(env.server.sentMessages.some((m) => m.text.includes("session limit"))).toBe(false);
+    expect(runner.calls.length).toBe(1);
+    await new Promise((r) => setTimeout(r, 300)); // a redelivery would show up as a second call
+    expect(runner.calls.length).toBe(1);
+  });
+
   it("auth-expired session pauses the job with retryAt and notifies once with the fix, then drains once it flips back to ok (#21)", async () => {
     const env = await makeEnv();
     const scenarios: MockScenario[] = [{ role: "dev", authFailed: true }];
