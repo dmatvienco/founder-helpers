@@ -10,8 +10,9 @@ const TAIL_LIMIT = 64 * 1024; // keep the last 64KB of extracted text for status
 
 /**
  * Runs one headless claude CLI session with a hard timeout and a guaranteed
- * process-tree kill. Never blocks on anything but the child itself — a
- * headless run has nobody to deliver callbacks to (predecessor issue #64).
+ * process-tree kill. Never blocks on anything external — a headless run has
+ * nobody to deliver callbacks to (predecessor issue #64) — except the child
+ * itself and its own output.log flush, both local and bounded.
  *
  * stdout is `--output-format stream-json` (JSON Lines): line-buffered
  * (holding the trailing partial line across chunks and flushing it once
@@ -120,7 +121,10 @@ export class ClaudeRunner implements Runner {
     if (pending) handleLine(pending);
 
     clearTimeout(timer);
-    stream.end();
+    // Wait for the write stream to actually flush before returning — end()
+    // alone is fire-and-forget, and a caller reading output.log right after
+    // run() resolves can otherwise race the pending disk write (#35).
+    await new Promise<void>((resolve) => stream.end(resolve));
 
     const limit = detectSessionLimit(textTail);
     const status: RunResult["status"] = timedOut
