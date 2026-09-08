@@ -258,10 +258,26 @@ describe("TelegramTransport", () => {
     const t = makeTransport(server, tmpStateFile());
     t.setTyping(true);
     await until(() => server.chatActions >= 3, 5000, "typing ticks");
-    t.setTyping(false);
+    // Awaited: the stop resolves once the tick already on the wire has landed.
+    // Sampling `after` before that made this test flake — the late tick bumped
+    // the counter inside the 150ms window (#31).
+    await t.setTyping(false);
     const after = server.chatActions;
     await new Promise((r) => setTimeout(r, 150));
     expect(server.chatActions).toBe(after);
+  });
+
+  it("stopping typing waits for the tick already on the wire (#31)", async () => {
+    const server = await startMockTelegram();
+    cleanups.push(() => server.close());
+    server.delayChatActionMs = 300;
+    // One tick only: the immediate one, still in flight when we stop.
+    const t = makeTransport(server, tmpStateFile(), { typingIntervalMs: 10_000 });
+    t.setTyping(true);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(server.chatActions).toBe(0); // on the wire, not landed yet
+    await t.setTyping(false);
+    expect(server.chatActions).toBe(1); // the stop waited for it
   });
 
   it("sends photos; an over-limit caption becomes a separate message", async () => {

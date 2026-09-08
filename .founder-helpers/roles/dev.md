@@ -35,6 +35,25 @@ project-specific lands here. The team edits this file itself as it learns. Commi
   mock rejects on `signal`'s abort — otherwise `stop()` awaits `loopDone`
   forever and the run hangs to timeout. Stop with the timers still fake:
   `const p = t.stop(); await vi.advanceTimersByTimeAsync(1000); await p;`
+- `gh issue view <N> --comments` prints NOTHING here (3/3 on 2026-09-08) —
+  exit 0, empty output, which reads exactly like an empty issue. Plain
+  `gh issue view <N>` works; for the body plus comments in one go use
+  `gh issue view <N> --json number,title,state,labels,body,comments`.
+- When the account's usage limit is reached, a role run dies in under a
+  second: the run dir holds only `prompt.md` and a short `output.log` ending
+  in `"is_error":true … "api_error_status":429`, and no report is written.
+  The queue job survives and is re-dispatched every cycle, so the SAME issue
+  keeps arriving — on 2026-09-08, 68 run logs between 06:44 and 10:52 UTC end
+  in that 429 (grep the runs dir for `"api_error_status":429`). So a
+  re-dispatched issue does NOT
+  mean the work is missing: check `git log --oneline` and whether your report
+  file already exists. If the branch is pushed and the report is there,
+  re-verify it (checks, diff vs base) and report that — do not redo the work.
+- A run that dies mid-workflow leaves the shared checkout on a DETACHED HEAD
+  at whatever `team/…` branch it was on. `git status --porcelain` is empty in
+  that state, so step 0's clean-tree gate passes and nothing looks wrong —
+  check `git rev-parse --abbrev-ref HEAD` too (it prints `HEAD` when
+  detached) and re-attach before working.
 
 ## Build, test and smoke procedures
 
