@@ -41,6 +41,17 @@ project-specific lands here. The team edits this file itself as it learns. Commi
   mock rejects on `signal`'s abort — otherwise `stop()` awaits `loopDone`
   forever and the run hangs to timeout. Stop with the timers still fake:
   `const p = t.stop(); await vi.advanceTimersByTimeAsync(1000); await p;`
+- A test fixture that hard-codes a wall-clock time and compares the parse
+  against the real `Date.now()` is time-of-day flaky: the two session-limit
+  reset fixtures ("11:30am (UTC)", "1pm (Europe/Amsterdam)") went red only
+  when the suite happened to run within an hour after that clock (#33, seen
+  2026-09-08 13:30 local). Compute the fixture's time from `Date.now()` and
+  assert a range, don't pin a literal clock.
+- `test/integration/telegram.test.ts` "typing keepalive ticks while composing
+  and stops cleanly" is timing-sensitive: it counts chat actions across a real
+  `setTimeout(150)`, so under full-suite parallel load one extra keepalive tick
+  can land and it fails with `expected 4 to be 3`. Seen once on 2026-09-08,
+  green on re-run and green alone. Re-run before believing you broke it.
 
 ## Build, test and smoke procedures
 
