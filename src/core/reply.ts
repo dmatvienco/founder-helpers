@@ -148,9 +148,7 @@ export class ReplyLane {
         // a message that was, in fact, already handled.
         const sent = await flushOutbox(this.o.transport, this.o.paths.outboxDir, this.o.logger);
         if (sent > 0) {
-          this.attempts.delete(msg.updateId);
-          this.limitNotified = false;
-          this.authNotified = false;
+          this.resetAttemptState(msg.updateId);
           return;
         }
       }
@@ -201,11 +199,16 @@ export class ReplyLane {
       }
 
       // Success: clean bookkeeping.
-      this.attempts.delete(msg.updateId);
-      this.limitNotified = false;
-      this.authNotified = false;
+      this.resetAttemptState(msg.updateId);
     } finally {
       this.o.transport.endProgress();
     }
   };
+
+  /** Clears retry/notification state for a message that's been fully handled. */
+  private resetAttemptState(updateId: number): void {
+    this.attempts.delete(updateId);
+    this.limitNotified = false;
+    this.authNotified = false;
+  }
 }
