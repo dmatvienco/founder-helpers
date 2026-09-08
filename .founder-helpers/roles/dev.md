@@ -30,6 +30,12 @@ project-specific lands here. The team edits this file itself as it learns. Commi
 - `npx <anything>` needs an approval prompt that a headless run cannot
   answer. To run one test file use `npm test -- <path>`, which goes through
   the allowed `npm` script.
+- `gh issue view <N>` sometimes returns completely empty (twice in a row at
+  the start of run 2026-09-08_06-15-36, then fine later in the same run). It
+  is not a permission denial — the same shell runs `gh issue edit` fine. Don't
+  conclude the issue is empty: fall back to
+  `gh issue view <N> --json number,title,body,comments,labels > <state-dir>/issue.json`
+  and Read the file.
 - Fake timers work against the transport loop (`vi.useFakeTimers()` fakes
   `Date` too, which `sleep()` needs), but the loop only unwinds if the fetch
   mock rejects on `signal`'s abort — otherwise `stop()` awaits `loopDone`
