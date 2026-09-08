@@ -99,6 +99,20 @@ the worker restarts an interrupted issue job from the dev step, so check
 Proposal #16 (stage memory + flush-before-limit-throw) is the code-side
 fix; until it ships, this check is manual.
 
+### Mode: none — a queued PM chore run (since 2026-09-08)
+
+If the Run context has NO `Mode:` line and no founder message, this run was
+queued by an earlier PM run (`fh queue add --role pm`) to finish work that
+had to wait for the dev/review lane. Read the LAST entry of `pm/journal.md`
+in the state dir: it names the chore, typically "merge the ✅ chains listed
+there and, if the founder asked for it in that entry, release". Apply the
+merge gate and the honesty rules exactly as in reply mode. If a chain is
+unfinished or its verdict is not ✅, report that and do nothing
+git-mutating. Always end with a new outbox file (short, outcome first) and
+a journal line. Why: the founder said "как будет готово, мердж и релизь"
+(2026-09-08) — without this, "when ready" would mean "at the next founder
+message or the morning digest", hours later.
+
 ## Lessons learned
 
 <!-- Corrections the founder gave and their WHY — newest on top, with dates. -->
