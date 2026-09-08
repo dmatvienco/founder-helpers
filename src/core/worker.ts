@@ -9,7 +9,7 @@ import { flushOutbox } from "../transport/outbox.js";
 import type { Transport } from "../transport/transport.js";
 import type { Runner } from "../runner/runner.js";
 import { limitPauseMs, type LimitReset } from "../runner/session-limit.js";
-import { loadQueue, nextEligibleJob, removeJob, setRetry } from "./queue.js";
+import { loadQueue, nextEligibleJob, removeJob, setRetry, setStage } from "./queue.js";
 import { runDigest } from "./digest.js";
 
 /** Blind back-off, used only when the CLI announced no reset time. */
@@ -103,31 +103,46 @@ export class Worker {
     const base = job.base ?? this.o.config.integrationBranch;
     const lines: string[] = [];
 
-    this.busyLabel = `issue #${issue} (dev)`;
-    this.o.logger.info(`worker: dev start issue #${issue} base=${base}`);
-    const dev = await runRole(this.o.projectRoot, "dev", this.roleOpts({ issue, base }));
-    this.o.logger.info(`worker: dev done issue #${issue} status=${dev.record.status}`);
+    let devStatusLabel = "resumed";
+    if (job.stage !== "review") {
+      this.busyLabel = `issue #${issue} (dev)`;
+      this.o.logger.info(`worker: dev start issue #${issue} base=${base}`);
+      const dev = await runRole(this.o.projectRoot, "dev", this.roleOpts({ issue, base }));
+      this.o.logger.info(`worker: dev done issue #${issue} status=${dev.record.status}`);
+      devStatusLabel = dev.record.status;
 
-    if (dev.record.status === "auth") {
-      this.pauseForAuth(job);
-      return;
-    }
-    if (dev.record.status === "limit") {
-      this.pauseForLimit(job, dev);
-      return;
-    }
-    if (dev.record.status !== "ok") {
-      lines.push(`⚠️ dev run ended with status "${dev.record.status}" — see ${dev.outputLog}`);
-    }
+      if (dev.record.status === "auth") {
+        this.pauseForAuth(job);
+        return;
+      }
+      if (dev.record.status === "limit") {
+        this.pauseForLimit(job, dev);
+        return;
+      }
+      if (dev.record.status !== "ok") {
+        lines.push(`⚠️ dev run ended with status "${dev.record.status}" — see ${dev.outputLog}`);
+      }
 
-    // Post-conditions in code, not forensics.
-    const branch = `${this.o.config.branchPrefix}issue-${issue}`;
-    if (!this.branchOnOrigin(branch)) {
-      lines.push(`⚠️ branch ${branch} not found on origin — dev may not have pushed`);
-    }
-    const report = path.join(this.o.paths.devDir, `report-issue${issue}.md`);
-    if (!existsSync(report)) {
-      lines.push(`⚠️ dev report missing (${report})`);
+      // Post-conditions in code, not forensics.
+      const branch = `${this.o.config.branchPrefix}issue-${issue}`;
+      if (!this.branchOnOrigin(branch)) {
+        lines.push(`⚠️ branch ${branch} not found on origin — dev may not have pushed`);
+      }
+      const report = path.join(this.o.paths.devDir, `report-issue${issue}.md`);
+      if (!existsSync(report)) {
+        lines.push(`⚠️ dev report missing (${report})`);
+      }
+
+      // Dev finished: a retry after a reviewer-side pause must resume at
+      // review, not redo the dev step (fresh checkout, work repeated, a
+      // push clash against the already-existing branch) — #34. But only
+      // when dev actually ended ok AND both post-conditions held (no
+      // warning line above) — otherwise stamping "review" here would make
+      // a retry skip a dev step that never really finished, so the next
+      // attempt would review a branch/report that don't exist (#36).
+      if (dev.record.status === "ok" && lines.length === 0) {
+        setStage(this.o.paths.queueFile, job.id, "review");
+      }
     }
 
     this.busyLabel = `issue #${issue} (review)`;
@@ -158,7 +173,7 @@ export class Worker {
     this.limitNotified = false;
     this.authNotified = false;
 
-    const head = `🔧 issue #${issue}: dev ${dev.record.status}, review ${review.record.status}.`;
+    const head = `🔧 issue #${issue}: dev ${devStatusLabel}, review ${review.record.status}.`;
     const body = [head, verdictLine, ...lines].filter(Boolean).join("\n");
     await this.trySend(body);
     // Anything the roles put in the outbox (reports, screenshots) rides along.

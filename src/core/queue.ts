@@ -45,6 +45,16 @@ export function setRetry(file: string, id: string, retryAtIso: string): void {
   }
 }
 
+/** Marks an issue job's dev step done so a retry (after a reviewer pause) skips straight to review (#34). */
+export function setStage(file: string, id: string, stage: QueueJob["stage"]): void {
+  const queue = loadQueue(file);
+  const job = queue.jobs.find((j) => j.id === id);
+  if (job) {
+    job.stage = stage;
+    saveQueue(file, queue);
+  }
+}
+
 /** First job whose retryAt (if any) has passed — FIFO order is priority. */
 export function nextEligibleJob(file: string, now = new Date()): QueueJob | undefined {
   const queue = loadQueue(file);

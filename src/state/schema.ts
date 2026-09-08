@@ -83,6 +83,8 @@ export const QueueJobSchema = z.object({
   role: z.string().optional(),
   addedAt: z.string(),
   retryAt: z.string().optional(),
+  /** Issue jobs only: dev already finished ok, only the reviewer remains (#34). */
+  stage: z.enum(["review"]).optional(),
 });
 export type QueueJob = z.infer<typeof QueueJobSchema>;
 
