@@ -51,6 +51,8 @@ export interface MockTelegram {
   getFileCalls: string[];
   /** While > 0, getUpdates responds 500 and decrements. Set to Infinity for "down". */
   failGetUpdates: number;
+  /** Hold every sendChatAction this long before counting it — keeps a tick provably in flight. */
+  delayChatActionMs: number;
   /** While > 0, getFile responds 500 and decrements — simulates a download failure. */
   failFileDownload: number;
   close(): Promise<void>;
@@ -73,6 +75,7 @@ export async function startMockTelegram(defaultChatId: number | string = 42): Pr
     getFileCalls: [] as string[],
     failGetUpdates: 0,
     failFileDownload: 0,
+    delayChatActionMs: 0,
   };
 
   const server: Server = createServer((req, res) => {
@@ -128,6 +131,11 @@ export async function startMockTelegram(defaultChatId: number | string = 42): Pr
       }
       if (method === "sendChatAction") {
         await readBody(req);
+        // Counted only after the delay: `chatActions` then means "landed",
+        // so a test can tell an in-flight tick from a finished one (#31).
+        if (state.delayChatActionMs > 0) {
+          await new Promise((r) => setTimeout(r, state.delayChatActionMs));
+        }
         state.chatActions++;
         json({ ok: true, result: true });
         return;
@@ -230,6 +238,12 @@ export async function startMockTelegram(defaultChatId: number | string = 42): Pr
     },
     set failFileDownload(n: number) {
       state.failFileDownload = n;
+    },
+    get delayChatActionMs() {
+      return state.delayChatActionMs;
+    },
+    set delayChatActionMs(ms: number) {
+      state.delayChatActionMs = ms;
     },
     close: () =>
       new Promise<void>((resolve, reject) =>
