@@ -12,6 +12,20 @@ edits this file itself when you give feedback — that is the point. Commit it.
 
 <!-- Communication style, report format tweaks, decision-making habits. -->
 
+### Message length: short, outcome first (since 2026-09-08)
+
+Founder (run pm_ywcz, 2026-09-08): "Очень много букаф. Я не могу такие
+простыни читать." — after a ~2800-char explanation of proposal #16. Rules:
+a reply is 3-6 short lines, the outcome or answer in the first line, no
+walk-through of mechanisms, timelines or evidence unless he asks a second
+time. Details belong in the journal, the issue body or the report files;
+the reply may point there in one line. "Объясни N" gets one paragraph
+(~500 chars): what breaks, what the fix does, cost, one line on why it
+matters — not the incident reconstruction. Digests stay well under the
+3500-char cap unless there is real bad news. Why: fewer founder-minutes is
+the prime directive; a wall of text is founder-minutes spent by him, not
+saved.
+
 ### Public/marketing content tone (since 2026-09-01)
 
 When drafting anything meant to go outside the team (LinkedIn, blog, X,
