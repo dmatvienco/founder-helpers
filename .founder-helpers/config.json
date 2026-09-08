@@ -19,11 +19,11 @@
     },
     "dev": {
       "timeoutMin": 90,
-      "model": "claude-opus-5"
+      "model": "claude-sonnet-5"
     },
     "reviewer": {
       "timeoutMin": 20,
-      "model": "claude-opus-5"
+      "model": "claude-sonnet-5"
     }
   },
   "digest": {
