@@ -27,7 +27,13 @@ export class RedeliverLater extends Error {
 
 export function isRedeliverLater(err: unknown): boolean {
   if (err instanceof RedeliverLater) return true;
-  return typeof err === "object" && err !== null && "redeliverLater" in err;
+  // The flag's VALUE, not its presence: `{ redeliverLater: false }` says
+  // "this is NOT a redelivery" and must keep counting as a real failure.
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { redeliverLater?: unknown }).redeliverLater === true
+  );
 }
 
 export interface InboundMessage {
