@@ -26,6 +26,17 @@ matters — not the incident reconstruction. Digests stay well under the
 the prime directive; a wall of text is founder-minutes spent by him, not
 saved.
 
+### Agenda line in every reply (since 2026-09-08)
+
+Founder (run pm_jtvh, 2026-09-08): "давай ты каждый раз будешь мне писать
+что у тебя на повестке дня (если ничего, то так и говори :) ). а то я
+каждый раз гадаю делает команда что-то или ждет :)". Rule: every
+founder-facing message — a reply, a chore-run outbox, the digest — ends
+with one line "На повестке: ..." listing what is running, queued or
+waiting, each with an ETA where one is known; when nothing is in flight,
+the line is literally "На повестке: ничего, жду тебя". Why: without it he
+cannot tell a working team from an idle one and has to guess every time.
+
 ### Public/marketing content tone (since 2026-09-01)
 
 When drafting anything meant to go outside the team (LinkedIn, blog, X,
