@@ -13,6 +13,9 @@ const INCIDENT = Date.parse("2026-09-07T07:24:53.000Z");
 const iso = (ms: number | undefined): string | undefined =>
   ms === undefined ? undefined : new Date(ms).toISOString();
 
+/** The CLI's line, byte-identical to the 2026-09-07 and 2026-09-08 samples. */
+const limitLine = (tail = ""): string => `You've hit your session limit${tail}`;
+
 describe("parseResetAt", () => {
   it("resolves a 12-hour time in an IANA zone to the next matching instant", () => {
     // 1pm Amsterdam in September is CEST (UTC+2) -> 11:00Z, the reset the
@@ -36,13 +39,23 @@ describe("parseResetAt", () => {
     expect(iso(parseResetAt("9pm (Europe/Amsterdam)", lateNight))).toBe("2026-09-08T19:00:00.000Z");
   });
 
-  it("falls back to the host zone when no zone is printed", () => {
-    const at = parseResetAt("1pm", INCIDENT);
-    expect(at).toBeDefined();
-    const local = new Date(at ?? 0);
-    expect(local.getHours()).toBe(13);
-    expect(local.getMinutes()).toBe(0);
-    expect(at ?? 0).toBeGreaterThan(INCIDENT);
+  it("treats a reset that has only just passed as 'about now', not tomorrow", () => {
+    // 13:01 in Amsterdam. We deliberately retry at reset + RESET_MARGIN_MS and
+    // the CLI prints the hour rounded, so the retry re-reads the same "1pm".
+    // Rolling that to tomorrow is how one notice became a day of silence (#33).
+    const justPast = Date.parse("2026-09-07T11:01:00.000Z");
+    expect(parseResetAt("1pm (Europe/Amsterdam)", justPast)).toBeUndefined();
+  });
+
+  it("still rolls to tomorrow once the reset is well behind us", () => {
+    const wellPast = Date.parse("2026-09-07T13:00:00.000Z"); // 15:00 in Amsterdam
+    expect(iso(parseResetAt("1pm (Europe/Amsterdam)", wellPast))).toBe("2026-09-08T11:00:00.000Z");
+  });
+
+  it("refuses a clock with no zone — the host's zone can be hours off", () => {
+    expect(parseResetAt("1pm", INCIDENT)).toBeUndefined();
+    expect(parseResetAt("11:30am", INCIDENT)).toBeUndefined();
+    expect(parseResetAt("13:05", INCIDENT)).toBeUndefined();
   });
 
   it("refuses anything it cannot read with confidence", () => {
@@ -88,6 +101,43 @@ describe("detectSessionLimit", () => {
     expect(limit?.limitResetText).toBeUndefined();
   });
 
+  it("ignores a 'resets' on a LATER line — only the phrase's own line is ours", () => {
+    // A role run writing about this very code prints such a line; borrowing
+    // its time used to cost the whole clamp instead of one blind retry (#33).
+    const limit = detectSessionLimit(
+      `${limitLine(".")}\nthe issue says it resets 1pm (Europe/Amsterdam)\n`,
+      INCIDENT,
+    );
+    expect(limit).toBeDefined();
+    expect(limit?.limitResetText).toBeUndefined();
+    expect(limit?.limitResetAt).toBeUndefined();
+  });
+
+  it("does pick it up on the phrase's own line, CRLF included", () => {
+    const limit = detectSessionLimit(
+      `${limitLine(" · resets 1pm (Europe/Amsterdam)")}\r\nnext line\r\n`,
+      INCIDENT,
+    );
+    expect(limit?.limitResetText).toBe("1pm (Europe/Amsterdam)");
+    expect(limit?.limitResetAt).toBe("2026-09-07T11:00:00.000Z");
+  });
+
+  it("keeps only the clock, not the CLI's framing around it", () => {
+    const limit = detectSessionLimit(
+      limitLine(" · resets 1pm (Europe/Amsterdam) [0m │ press ctrl-c"),
+      INCIDENT,
+    );
+    expect(limit?.limitResetText).toBe("1pm (Europe/Amsterdam)");
+  });
+
+  it("waits the blind fallback when the announced reset has just passed", () => {
+    const justPast = Date.parse("2026-09-07T11:01:00.000Z"); // 13:01 in Amsterdam
+    const limit = detectSessionLimit(limitLine(" · resets 1pm (Europe/Amsterdam)"), justPast);
+    expect(limit?.limitResetText).toBe("1pm (Europe/Amsterdam)"); // founder still gets the time
+    expect(limit?.limitResetAt).toBeUndefined();
+    expect(limitPauseMs(limit?.limitResetAt, justPast, 15 * 60_000)).toBe(15 * 60_000);
+  });
+
   it("returns undefined for output without the phrase", () => {
     expect(detectSessionLimit("all good, resets 1pm (UTC)", INCIDENT)).toBeUndefined();
   });
@@ -106,10 +156,16 @@ describe("limitPauseMs", () => {
     expect(limitPauseMs(at, INCIDENT, fallback)).toBe(3 * 60 * 60_000 + RESET_MARGIN_MS);
   });
 
-  it("never retries instantly on an already-past reset, and never stalls beyond a day", () => {
+  it("never retries instantly on an already-past reset, and never stalls past a window", () => {
     const past = new Date(INCIDENT - 60 * 60_000).toISOString();
     expect(limitPauseMs(past, INCIDENT, fallback)).toBe(RESET_MARGIN_MS);
     const absurd = new Date(INCIDENT + 30 * 24 * 60 * 60_000).toISOString();
     expect(limitPauseMs(absurd, INCIDENT, fallback)).toBe(MAX_LIMIT_PAUSE_MS);
+  });
+
+  it("caps at a session window, not a day — limits last five hours", () => {
+    expect(MAX_LIMIT_PAUSE_MS).toBe(6 * 60 * 60_000);
+    const tomorrow = new Date(INCIDENT + 23 * 60 * 60_000).toISOString();
+    expect(limitPauseMs(tomorrow, INCIDENT, fallback)).toBe(MAX_LIMIT_PAUSE_MS);
   });
 });

@@ -136,10 +136,12 @@ describe("runRole with the ClaudeRunner (fake claude binaries)", () => {
       ...fake("limit-reset.cjs"),
     });
     expect(outcome.record.status).toBe("limit");
-    expect(outcome.limitResetText).toBe("11:30am (UTC)");
-    const at = new Date(outcome.limitResetAt ?? "");
-    expect(at.getTime()).toBeGreaterThan(Date.now()); // the NEXT 11:30 UTC, never a past one
-    expect([at.getUTCHours(), at.getUTCMinutes()]).toEqual([11, 30]);
+    // The fixture announces a reset three hours out; a fixed clock would land
+    // inside the just-passed grace window for an hour every day (#33).
+    expect(outcome.limitResetText).toMatch(/^\d{2}:\d{2} \(UTC\)$/);
+    const ahead = new Date(outcome.limitResetAt ?? "").getTime() - Date.now();
+    expect(ahead).toBeGreaterThan(2.5 * 60 * 60_000); // the NEXT one, never a past one
+    expect(ahead).toBeLessThan(3.5 * 60 * 60_000);
   });
 
   it("leaves the reset undefined when the CLI printed no time (#30)", async () => {
@@ -335,13 +337,18 @@ describe("MockRunner", () => {
   it("carries the reset time from a scenario's stdout, like the real runner does (#30)", async () => {
     const { repo, stateBase } = makeProject();
     const sp = mkdtempSync(path.join(tmpdir(), "fh-mockbase-reset-"));
+    // Three hours out, so the announced reset never falls inside the
+    // just-passed grace window whatever time the suite runs at (#33).
+    const at = new Date(Date.now() + 3 * 60 * 60_000);
+    const pad = (n: number): string => String(n).padStart(2, "0");
+    const clock = `${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())} (UTC)`;
     const runner = new MockRunner(
-      [{ role: "pm", stdout: "You've hit your session limit · resets 1pm (Europe/Amsterdam)" }],
+      [{ role: "pm", stdout: `You've hit your session limit · resets ${clock}` }],
       sp,
     );
     const outcome = await runRole(repo, "pm", { paths: { stateBase }, runner });
     expect(outcome.record.status).toBe("limit");
-    expect(outcome.limitResetText).toBe("1pm (Europe/Amsterdam)");
+    expect(outcome.limitResetText).toBe(clock);
     expect(Date.parse(outcome.limitResetAt ?? "")).toBeGreaterThan(Date.now());
   });
 
