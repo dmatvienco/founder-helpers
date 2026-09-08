@@ -55,6 +55,22 @@ monthlyRange: { start, end }, error } }`. Read that file for the 📊 block:
   (npm omitted the dates) means the freshness is unknown, not current — say
   so rather than reporting the count as live.
 
+### Reply mode: write the outbox before long tail-work (since 2026-09-08)
+
+When a founder message triggers work with a long tail (watching a CI or
+release run to completion, verifying `npm view`, closing issues, stripping
+labels), write the founder-facing outbox file as soon as the substantive
+answer is known — then do the tail-work, and if it changes the picture,
+write a second outbox file. Why: on 2026-09-07 (run pm_y49x) the merge and
+the 0.9.0 release were done and verified by 07:22 UTC, but the run watched
+the release workflow first and hit the Claude session limit (429) at 07:24,
+11 seconds after the last verification and before the outbox step. No
+outbox file = the daemon treats the run as failed and retries it; every
+retry hit the same 429 until the 11:00 UTC reset, so the founder heard
+nothing for ~3h50m except the generic loop alert, although everything he
+asked for had been live since 07:24. The outbox file costs seconds; the
+silence cost four founder-hours.
+
 ## Lessons learned
 
 <!-- Corrections the founder gave and their WHY — newest on top, with dates. -->
