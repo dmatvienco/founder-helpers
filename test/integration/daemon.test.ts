@@ -571,6 +571,45 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
     );
   });
 
+  it("dev ok, reviewer hits the session limit -> the retry after the pause resumes at review only, never redoes dev (#34)", async () => {
+    const env = await makeEnv();
+    const scenarios: MockScenario[] = [
+      { role: "dev", writeFiles: [{ path: "dev/report-issue11.md", content: "# report" }] },
+      { role: "reviewer", stdout: "You've hit your session limit until 7pm." },
+    ];
+    const runner = new MockRunner(scenarios, env.sp.root);
+    await boot(env, scenarios, { limitRetryMs: 100, runner });
+    addJob(env.sp.queueFile, { kind: "issue", issue: 11, base: "main" });
+
+    await until(
+      () => env.server.sentMessages.some((m) => m.text.includes("⏳")),
+      10000,
+      "limit notification",
+    );
+    // Persisted so a crash between here and the retry still resumes correctly.
+    expect(loadQueue(env.sp.queueFile).jobs[0]?.stage).toBe("review");
+    expect(runner.calls.filter((c) => c.role === "dev")).toHaveLength(1);
+
+    // The limit lifts — reviewer succeeds on retry.
+    scenarios.length = 0;
+    scenarios.push({
+      role: "reviewer",
+      writeFiles: [{ path: "dev/review-issue11.md", content: "✅ ок" }],
+    });
+
+    await until(
+      () => env.server.sentMessages.some((m) => m.text.includes("✅ ок")),
+      10000,
+      "completion after the reviewer retry",
+    );
+    expect(loadQueue(env.sp.queueFile).jobs).toEqual([]);
+    // Only ONE dev run ever happened — the retry skipped straight to review.
+    expect(runner.calls.filter((c) => c.role === "dev")).toHaveLength(1);
+    expect(runner.calls.filter((c) => c.role === "reviewer")).toHaveLength(2);
+    const completion = env.server.sentMessages.find((m) => m.text.includes("✅ ок"));
+    expect(completion?.text).toContain("dev resumed");
+  });
+
   it("reply lane: 3 failed composes -> honest apology, offset advances, next message works", async () => {
     const env = await makeEnv();
     // PM scenario writes NO outbox -> every attempt "fails".
