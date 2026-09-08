@@ -30,5 +30,7 @@
 - CI: GitHub Actions, 3-OS matrix (ubuntu/macos/windows) on every push. All
   tests use MockRunner + a mock Telegram server — a real claude session or
   network access in tests is a review blocker.
-- Runtime deps are frozen at three (zod, croner, proper-lockfile) — adding a
-  dependency needs the founder's explicit yes.
+- Runtime deps are frozen at four (zod, croner, proper-lockfile, undici —
+  the last added by the founder himself in 0.7.0, d747387, for the
+  transport's own connection pool) — adding a dependency needs the
+  founder's explicit yes.

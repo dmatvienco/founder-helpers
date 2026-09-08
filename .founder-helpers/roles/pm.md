@@ -71,6 +71,20 @@ nothing for ~3h50m except the generic loop alert, although everything he
 asked for had been live since 07:24. The outbox file costs seconds; the
 silence cost four founder-hours.
 
+Addendum (2026-09-08, runs pm_gyf7/pm_xux8): writing the file first is not
+enough on its own. A run that ends with status `limit` is treated as failed
+BEFORE the outbox is flushed (`src/core/reply.ts` throws "session limit"
+ahead of `flushOutbox`), so the file sits unsent and the message is
+redelivered anyway; the post-reset retry then flushes everything in the
+outbox, stale file included. So: on every reply run, list the outbox dir
+first — a leftover `reply-*.txt` from an earlier run for the same message
+is stale (hours-old times, wrong "in progress" state); delete it and write
+a fresh one. Also expect the same limit to have killed the worker lane:
+the worker restarts an interrupted issue job from the dev step, so check
+`git log` of the branch and the report file before assuming work is lost.
+Proposal #16 (stage memory + flush-before-limit-throw) is the code-side
+fix; until it ships, this check is manual.
+
 ## Lessons learned
 
 <!-- Corrections the founder gave and their WHY — newest on top, with dates. -->
