@@ -124,6 +124,22 @@ a journal line. Why: the founder said "как будет готово, мерд�
 (2026-09-08) — without this, "when ready" would mean "at the next founder
 message or the morning digest", hours later.
 
+### A gap in the journal is an outage until proven otherwise (since 2026-09-18)
+
+Before reading a quiet board as "another idle day", check whether the team
+could run at all: if the last `pm/journal.md` entry is older than yesterday,
+list `runs/` and read a few `record.json` files. `status: "auth"` (expired
+OAuth) or `status: "limit"` in a long unbroken streak means the founder heard
+nothing, not that nothing happened — say so in the first line of the digest
+with the exact window and the number of failed runs. Then check `fh queue`
+before writing anything: a recovered outage leaves one queued digest job per
+missed day, and they all fire within minutes of each other. Keep today's and
+`fh queue remove` the stale ones, then report that you did. Why: on
+2026-09-13T06:00Z the Claude CLI session expired and 1554 consecutive runs
+died with `status: "auth"` through 2026-09-18T11:58Z — 5 digests never
+delivered, one single Telegram alert on the first morning (the alert is
+once-per-daemon-process), and six digests queued to land at once on recovery.
+
 ## Lessons learned
 
 <!-- Corrections the founder gave and their WHY — newest on top, with dates. -->
