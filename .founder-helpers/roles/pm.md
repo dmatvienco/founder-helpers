@@ -140,6 +140,18 @@ died with `status: "auth"` through 2026-09-18T11:58Z — 5 digests never
 delivered, one single Telegram alert on the first morning (the alert is
 once-per-daemon-process), and six digests queued to land at once on recovery.
 
+### Release: bump the lockfile too (since 2026-09-20)
+
+A release commit must carry `package-lock.json` alongside `package.json` —
+`npm version <x> --no-git-tag-version` updates both, or run `npm install
+--package-lock-only` after editing `package.json` by hand. Since #38/#40
+(merged 2026-09-20, 6eba933) `.github/workflows/ci.yml` runs `node
+scripts/check-lockfile-version.mjs`, which exits 1 when the two versions
+differ, so a `package.json`-only version bump now turns the release push red
+on all three OSes instead of shipping a lockfile that still claims the old
+version. Reviewer remark 4 on #38: the guard belongs to the release
+procedure, which is the PM's lane, not the issue's scope.
+
 ## Lessons learned
 
 <!-- Corrections the founder gave and their WHY — newest on top, with dates. -->
