@@ -183,6 +183,14 @@ export class Worker {
   }
 
   private async processDigest(job: QueueJob): Promise<void> {
+    // After an outage the queue holds one digest per missed day; a digest is
+    // about today, so replaying yesterday's is noise — drop it, say which day.
+    const staleDay = staleDigestDay(job.addedAt, new Date());
+    if (staleDay) {
+      removeJob(this.o.paths.queueFile, job.id);
+      this.o.logger.info(`worker: skipped stale digest for ${staleDay}`);
+      return;
+    }
     this.busyLabel = "digest";
     const result = await runDigest({
       projectRoot: this.o.projectRoot,
@@ -287,6 +295,28 @@ export class Worker {
       this.o.logger.error(`worker: completion message failed: ${err}`);
     }
   }
+}
+
+/**
+ * "dd.mm" of the day a digest job was added when that is not `now`'s day, else
+ * undefined. Both sides use the local calendar — the clock the digest cron
+ * fires on — so a job paused at 06:00 and retried at 11:58 stays current, while
+ * one added late yesterday and retried after midnight is stale by design. An
+ * unparseable `addedAt` (hand-edited queue) is never treated as stale.
+ */
+export function staleDigestDay(addedAt: string, now: Date): string | undefined {
+  const added = new Date(addedAt);
+  if (Number.isNaN(added.getTime())) return undefined;
+  if (
+    added.getFullYear() === now.getFullYear() &&
+    added.getMonth() === now.getMonth() &&
+    added.getDate() === now.getDate()
+  ) {
+    return undefined;
+  }
+  const dd = String(added.getDate()).padStart(2, "0");
+  const mm = String(added.getMonth() + 1).padStart(2, "0");
+  return `${dd}.${mm}`;
 }
 
 export function describeJob(job: QueueJob): string {

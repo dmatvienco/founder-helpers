@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { runInit } from "../../src/cli/init.js";
 import { startDaemon, type DaemonHandle, type DaemonOptions } from "../../src/core/daemon.js";
 import { TelegramTransport } from "../../src/transport/telegram.js";
-import { addJob, loadQueue } from "../../src/core/queue.js";
+import { addJob, loadQueue, saveQueue } from "../../src/core/queue.js";
 import {
   loadPmSession,
   loadPmSessionId,
@@ -579,6 +579,61 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
       10000,
       "second auth notification after reset",
     );
+  });
+
+  it("digest: a job added on an earlier day is dropped without a runner call, today's still runs (#37)", async () => {
+    const env = await makeEnv();
+    const runner = new MockRunner([{ role: "pm" }], env.sp.root);
+    const logs: string[] = [];
+    const record = (msg: string): void => {
+      logs.push(msg);
+    };
+    const logger = { debug: record, info: record, warn: record, error: record, file: "" };
+    await boot(env, [], { runner, logger });
+
+    // Local noon keeps the fixture clear of DST shifts; FIFO puts the stale one first.
+    const now = new Date();
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 12);
+    saveQueue(env.sp.queueFile, {
+      jobs: [
+        { id: "job-stale", kind: "digest", addedAt: yesterday.toISOString() },
+        { id: "job-today", kind: "digest", addedAt: now.toISOString() },
+      ],
+    });
+
+    await until(
+      () => loadQueue(env.sp.queueFile).jobs.length === 0,
+      10000,
+      "both digest jobs leave the queue",
+    );
+    // Exactly one digest ran — the stale job never reached the runner.
+    expect(runner.calls.map((c) => c.role)).toEqual(["pm"]);
+    const day = `${String(yesterday.getDate()).padStart(2, "0")}.${String(yesterday.getMonth() + 1).padStart(2, "0")}`;
+    expect(logs).toContain(`worker: skipped stale digest for ${day}`);
+    expect(logs.filter((l) => l.includes("skipped stale digest"))).toHaveLength(1);
+  });
+
+  it("digest: a same-day job whose retryAt came from a pause still runs (#37)", async () => {
+    const env = await makeEnv();
+    const runner = new MockRunner([{ role: "pm" }], env.sp.root);
+    await boot(env, [], { runner });
+
+    // Paused early today, retry due now: the exact limit/auth-pause shape.
+    const now = new Date();
+    const earlierToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    saveQueue(env.sp.queueFile, {
+      jobs: [
+        {
+          id: "job-paused",
+          kind: "digest",
+          addedAt: earlierToday.toISOString(),
+          retryAt: new Date(Date.now() - 1000).toISOString(),
+        },
+      ],
+    });
+
+    await until(() => loadQueue(env.sp.queueFile).jobs.length === 0, 10000, "paused digest drains");
+    expect(runner.calls.map((c) => c.role)).toEqual(["pm"]);
   });
 
   it("role job resets limitNotified on a successful run, so a later incident notifies again (#23)", async () => {
