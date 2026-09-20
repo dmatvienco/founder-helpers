@@ -1,5 +1,13 @@
 import { execFile } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,8 +68,14 @@ describe("check-lockfile-version script", () => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
+  // realpath the temp root: on macOS tmpdir() is /var/folders/..., and /var is a
+  // symlink to /private/var. Node puts the realpath into import.meta.url for the
+  // entry module, so a symlinked root is only ever exercised on purpose (the
+  // symlink test below), never by accident.
+  const tempRoot = () => realpathSync(tmpdir());
+
   function fakeRepo(pkgVersion: string, lock: unknown): string {
-    const root = mkdtempSync(path.join(tmpdir(), "fh-lockcheck-"));
+    const root = mkdtempSync(path.join(tempRoot(), "fh-lockcheck-"));
     dirs.push(root);
     mkdirSync(path.join(root, "scripts"));
     copyFileSync(script, path.join(root, "scripts", "check-lockfile-version.mjs"));
@@ -91,5 +105,27 @@ describe("check-lockfile-version script", () => {
     expect(err?.code).toBe(1);
     expect(err?.stderr).toContain('package-lock.json version is "1.2.2"');
     expect(err?.stderr).toContain("npm install --package-lock-only");
+  });
+
+  // A silent exit 0 on drift would defeat the CI guard, so the mismatch case is
+  // the one worth running through a link. "junction" is ignored off Windows and
+  // needs no privilege on it, unlike a "dir" symlink.
+  it("still catches a mismatch when launched through a symlinked directory", async () => {
+    const copy = fakeRepo("1.2.3", lockAt("1.2.2", "1.2.3"));
+    const linkHome = mkdtempSync(path.join(tempRoot(), "fh-lockcheck-link-"));
+    dirs.push(linkHome);
+    const link = path.join(linkHome, "repo");
+    symlinkSync(path.dirname(path.dirname(copy)), link, "junction");
+    expect(realpathSync(link)).not.toBe(link);
+
+    const err = await execFileAsync(process.execPath, [
+      path.join(link, "scripts", path.basename(copy)),
+    ]).then(
+      () => null,
+      (e: { code?: number; stderr?: string }) => e,
+    );
+    expect(err).not.toBeNull();
+    expect(err?.code).toBe(1);
+    expect(err?.stderr).toContain('package-lock.json version is "1.2.2"');
   });
 });

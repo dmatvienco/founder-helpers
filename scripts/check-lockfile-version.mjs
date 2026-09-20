@@ -7,6 +7,7 @@
 //
 // Run from anywhere: the files are resolved relative to this script, not cwd.
 
+import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -52,7 +53,22 @@ async function main() {
   process.exitCode = 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Node puts the realpath of the entry module into import.meta.url, but
+// process.argv[1] is only path.resolve'd, so compare against its realpath or a
+// symlinked path (macOS /var -> /private/var) makes main() silently not run.
+function isEntryPoint() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  let resolved = entry;
+  try {
+    resolved = realpathSync(entry);
+  } catch {
+    // Missing path: keep the path as given, which then simply won't match.
+  }
+  return import.meta.url === pathToFileURL(resolved).href;
+}
+
+if (isEntryPoint()) {
   main().catch((err) => {
     console.error(`check-lockfile-version: ${err instanceof Error ? err.message : String(err)}`);
     process.exitCode = 1;
