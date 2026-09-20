@@ -84,6 +84,16 @@ project-specific lands here. The team edits this file itself as it learns. Commi
   branches without #31 on 2026-09-08). #31 made `setTyping(false)` wait for
   the tick on the wire and the test awaits it, so on main after that merge a
   failure here is news, not the known flake.
+- `node dist/index.js ...` (smoke-running the built CLI) needs an approval
+  prompt a headless run cannot answer, same as `npx` (seen 2026-09-20, #39).
+  `npm run build` itself is fine; to check a path that only differs in dist,
+  Read/Grep the emitted `dist/**/*.js` (tsc mirrors `src/` one-to-one, so
+  `dist/util/x.js` sits at the same depth as `src/util/x.ts`).
+- Any new code path that calls `fetch` (npm registry, GitHub, ...) must take
+  the fetch as an injectable option, and every test that runs
+  `statusCommand([])` or calls `startDaemon` directly (past the lock) must
+  pass a stub. Only the daemon suite's `boot()` helper is covered for you: it
+  defaults `versionFetch` to a rejecting one (#39).
 
 ## Build, test and smoke procedures
 
