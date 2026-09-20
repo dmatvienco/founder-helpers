@@ -10,6 +10,7 @@ import type { Transport } from "../transport/transport.js";
 import type { Runner } from "../runner/runner.js";
 import { headCommit } from "../util/git.js";
 import { heartbeatStatus } from "../util/tree-kill.js";
+import { checkForNewerVersion } from "../util/version-check.js";
 import { addJob } from "./queue.js";
 import { resetPmSession } from "./pm-session.js";
 import { ReplyLane } from "./reply.js";
@@ -44,6 +45,8 @@ export interface DaemonOptions {
   logger?: Logger;
   lockStaleMs?: number;
   lockRetries?: { retries: number; minTimeout: number; maxTimeout: number };
+  /** Test hook: the fetch behind the "newer version on npm" check. */
+  versionFetch?: typeof fetch;
 }
 
 export interface DaemonHandle {
@@ -160,9 +163,27 @@ export async function startDaemon(
     );
   }
 
+  // Once per process, deliberately unlike the auth alert: the update this
+  // announces ends in a restart, so the notice cannot turn into a nag. Fired
+  // and forgotten — startup never waits for the registry, and a failure of
+  // any kind stays at debug level (#39).
+  let stopping = false;
+  void checkForNewerVersion({
+    cacheFile: sp.versionCheckFile,
+    fetchImpl: opts.versionFetch,
+    debug: (msg) => logger.debug(msg),
+  })
+    .then(async (notice) => {
+      if (!notice || stopping) return;
+      logger.info(`version: ${notice}`);
+      await transport.send(notice);
+    })
+    .catch((err) => logger.debug(`version notice not sent: ${err}`));
+
   return {
     paths: sp,
     async stop(): Promise<void> {
+      stopping = true;
       logger.info("daemon stopping...");
       cron?.stop();
       clearInterval(heartbeatTimer);

@@ -271,7 +271,10 @@ describe("checkForNewerVersion", () => {
 
     it("does not trust an entry stamped in the future", async () => {
       const file = cacheFile();
-      writeFileSync(file, JSON.stringify({ checkedAt: "2099-01-01T00:00:00.000Z", latest: "0.9.0" }));
+      writeFileSync(
+        file,
+        JSON.stringify({ checkedAt: "2099-01-01T00:00:00.000Z", latest: "0.9.0" }),
+      );
       const fetchImpl = registry("0.11.0");
       const line = await checkForNewerVersion({ cacheFile: file, installed: "0.10.0", fetchImpl });
       expect(fetchImpl).toHaveBeenCalledTimes(1);

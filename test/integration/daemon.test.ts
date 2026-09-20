@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { runInit } from "../../src/cli/init.js";
 import { startDaemon, type DaemonHandle, type DaemonOptions } from "../../src/core/daemon.js";
 import { TelegramTransport } from "../../src/transport/telegram.js";
@@ -16,6 +16,7 @@ import {
 import { MockRunner, type MockScenario } from "../../src/runner/mock-runner.js";
 import { statePaths } from "../../src/state/paths.js";
 import { saveSecrets } from "../../src/state/secrets.js";
+import { packageVersion } from "../../src/util/version-check.js";
 import { startMockTelegram, until, type MockTelegram } from "../helpers/mock-telegram.js";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -64,6 +65,8 @@ async function boot(
     workerIntervalMs: 50,
     limitRetryMs: 60_000,
     transport,
+    // Never the real npm registry from a test; #39's own tests override this.
+    versionFetch: () => Promise.reject(new Error("offline")),
     ...extra,
   });
   cleanups.push(() => handle.stop());
@@ -325,6 +328,146 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
     expect(readFileSync(path.join(runner.calls[2]!.runDir, "prompt.md"), "utf8")).toContain(
       "Project profile",
     );
+  });
+
+  describe("newer version on npm (#39)", () => {
+    const installed = packageVersion();
+    const newer = `${Number(installed.split(".")[0]) + 1}.0.0`;
+    const notice = (env: Env): string[] =>
+      env.server.sentMessages.filter((m) => m.text.includes("on npm")).map((m) => m.text);
+
+    function registry(latest: string) {
+      return vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ latest })));
+    }
+
+    it("sends the one-liner to Telegram, once per process", async () => {
+      const env = await makeEnv();
+      const versionFetch = registry(newer);
+      await boot(env, [], { versionFetch });
+
+      await until(() => notice(env).length > 0, 10000, "version notice");
+      expect(notice(env)).toEqual([
+        `founder-helpers ${installed} installed, ${newer} on npm — npm update -g founder-helpers + restart`,
+      ]);
+      // Worker and transport keep ticking; the check must not come back.
+      await new Promise((r) => setTimeout(r, 300));
+      expect(notice(env)).toHaveLength(1);
+      expect(versionFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not delay startup: boot returns while the registry is still silent", async () => {
+      const env = await makeEnv();
+      let answer: (res: Response) => void = () => {};
+      const versionFetch = vi.fn<typeof fetch>(
+        () => new Promise<Response>((resolve) => (answer = resolve)),
+      );
+      const started = Date.now();
+      await boot(env, [], { versionFetch });
+      expect(Date.now() - started).toBeLessThan(2000);
+      expect(notice(env)).toEqual([]);
+
+      // The chat lane is live while the check hangs.
+      env.server.pushUpdate("привет");
+      await until(() => env.server.sentMessages.length > 0, 10000, "daemon keeps working");
+
+      // Once the registry finally answers, the notice still goes out.
+      answer(new Response(JSON.stringify({ latest: newer })));
+      await until(() => notice(env).length === 1, 10000, "late version notice");
+    });
+
+    it("stays silent when npm has the installed version", async () => {
+      const env = await makeEnv();
+      const versionFetch = registry(installed);
+      await boot(env, [], { versionFetch });
+      await until(() => versionFetch.mock.calls.length > 0, 10000, "registry asked");
+      await new Promise((r) => setTimeout(r, 300));
+      expect(notice(env)).toEqual([]);
+    });
+
+    it.each([
+      ["offline", () => Promise.reject(new TypeError("fetch failed"))],
+      ["a 503", async () => new Response("down", { status: 503 })],
+      ["garbage", async () => new Response("<html>", { status: 200 })],
+    ])("startup is unaffected and nothing is sent when the registry is %s", async (_n, respond) => {
+      const env = await makeEnv();
+      const versionFetch = vi.fn<typeof fetch>(respond);
+      const logs: { level: string; msg: string }[] = [];
+      const at = (level: string) => (msg: string) => logs.push({ level, msg });
+      const logger = {
+        debug: at("debug"),
+        info: at("info"),
+        warn: at("warn"),
+        error: at("error"),
+        file: "",
+      };
+      await boot(env, [], { versionFetch, logger });
+      await until(() => versionFetch.mock.calls.length > 0, 10000, "registry asked");
+      await new Promise((r) => setTimeout(r, 200));
+
+      expect(notice(env)).toEqual([]);
+      // Nothing louder than debug: no warn/error line mentions the check.
+      expect(
+        logs.filter((l) => (l.level === "warn" || l.level === "error") && /version/i.test(l.msg)),
+      ).toEqual([]);
+      // ...and the daemon is fully alive.
+      env.server.pushUpdate("привет");
+      await until(() => env.server.sentMessages.length > 0, 10000, "daemon still answers");
+    });
+
+    it("a failing Telegram send is swallowed at debug level", async () => {
+      const env = await makeEnv();
+      const logs: { level: string; msg: string }[] = [];
+      const at = (level: string) => (msg: string) => logs.push({ level, msg });
+      const logger = {
+        debug: at("debug"),
+        info: at("info"),
+        warn: at("warn"),
+        error: at("error"),
+        file: "",
+      };
+      const transport = {
+        start: () => {},
+        stop: async () => {},
+        send: vi.fn(async () => {
+          throw new Error("telegram down");
+        }),
+        sendPhoto: async () => {},
+        setTyping: () => {},
+        startProgress: async () => {},
+        updateProgress: () => {},
+        endProgress: () => {},
+      };
+      await boot(env, [], { versionFetch: registry(newer), logger, transport });
+      await until(() => transport.send.mock.calls.length > 0, 10000, "send attempted");
+      await until(
+        () => logs.some((l) => l.level === "debug" && l.msg.includes("telegram down")),
+        5000,
+        "debug line",
+      );
+      expect(logs.filter((l) => l.level === "warn" || l.level === "error")).toEqual([]);
+    });
+
+    it("caches the registry's answer in the state dir", async () => {
+      const env = await makeEnv();
+      await boot(env, [], { versionFetch: registry(newer) });
+      await until(() => notice(env).length > 0, 10000, "version notice");
+      expect(JSON.parse(readFileSync(env.sp.versionCheckFile, "utf8"))).toMatchObject({
+        latest: newer,
+      });
+    });
+
+    it("a daemon stopped before the registry answers sends nothing", async () => {
+      const env = await makeEnv();
+      let answer: (res: Response) => void = () => {};
+      const versionFetch = vi.fn<typeof fetch>(
+        () => new Promise<Response>((resolve) => (answer = resolve)),
+      );
+      const handle = await boot(env, [], { versionFetch });
+      await handle.stop();
+      answer(new Response(JSON.stringify({ latest: newer })));
+      await new Promise((r) => setTimeout(r, 200));
+      expect(notice(env)).toEqual([]);
+    });
   });
 
   it("second daemon instance dies loudly on the lock", async () => {
