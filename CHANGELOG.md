@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.11.0
+
+- The daemon no longer runs an old version in silence: on start it compares
+  the installed package version against the npm registry (one request, short
+  timeout, cached for a day) and sends a single
+  `founder-helpers 0.10.0 installed, 0.11.0 on npm — npm update -g
+  founder-helpers + restart` line; `fh status` prints the same. Every failure
+  — offline, timeout, unparseable answer — is silent and never delays
+  startup (#39).
+- A digest job for a day that has already passed is dropped instead of
+  replayed. After a multi-day outage the queue held one digest job per missed
+  day and all of them fired within minutes of each other on recovery; now
+  only today's digest runs and each stale job is removed with a log line
+  naming the day it was for (#37).
+- `package-lock.json`'s own version field, four releases behind at 0.6.0, is
+  back in sync with `package.json`, and a CI step now fails the build when
+  the two drift apart again. The guard resolves the script's entry path
+  through `realpath`, so it also holds where the temp dir is a symlink
+  (macOS `/var`) or a Windows junction (#38, #40).
+
 ## 0.10.0
 
 - The daemon now reads the reset time out of the Claude CLI's session-limit
