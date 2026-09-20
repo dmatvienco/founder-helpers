@@ -32,6 +32,16 @@ project-specific lands here. The team edits this file itself as it learns. Commi
 - `npx <anything>` needs an approval prompt that a headless run cannot
   answer. To run one test file use `npm test -- <path>`, which goes through
   the allowed `npm` script.
+- Cross-OS tests that need a symlink: `symlinkSync(target, link, "junction")`.
+  The type is ignored on POSIX and a junction needs no privilege on Windows
+  (used in #40 on this box; a plain `"dir"` symlink there needs admin or
+  developer mode, not tried).
+  Node's realpath of an entry module (`import.meta.url`) is what a script's
+  "am I the entry point" guard must be compared against, so a symlinked path
+  (macOS `/var/folders/...` temp dirs) needs `realpathSync(process.argv[1])`;
+  see `scripts/check-lockfile-version.mjs` (#40). A macOS-only CI failure of
+  this kind can be reproduced on Windows with a junction. `mkdtempSync` under
+  `realpathSync(tmpdir())` keeps fixtures out of that trap.
 - CI does NOT run on `team/*` pushes: `.github/workflows/ci.yml` triggers only
   on `push` to `main` and on `pull_request`, and this repo opens no PRs. So an
   issue that says "verify on the CI run your branch push triggers" cannot be
@@ -94,6 +104,13 @@ project-specific lands here. The team edits this file itself as it learns. Commi
   `statusCommand([])` or calls `startDaemon` directly (past the lock) must
   pass a stub. Only the daemon suite's `boot()` helper is covered for you: it
   defaults `versionFetch` to a rejecting one (#39).
+- A bare `node <script>` in the Bash tool needs an approval prompt too, and a
+  compound command (`a && node x; echo "exit=$?"`) is blocked as a whole — even
+  its allowed parts (`mkdir`, `cp`) never run (#38, 2026-09-20). To exercise a
+  `scripts/*.mjs` entry point, drive it from a vitest test that spawns
+  `process.execPath` (see `test/unit/check-lockfile-version.test.ts`, which
+  copies the script into a temp "repo" so the real exit code is checked), and
+  run it with `npm test -- <path>`.
 
 ## Build, test and smoke procedures
 
