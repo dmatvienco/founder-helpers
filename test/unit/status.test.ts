@@ -9,7 +9,13 @@ import { gatherStatus, statusCommand } from "../../src/cli/status.js";
 import { statePaths, type PathsOptions } from "../../src/state/paths.js";
 import { writeJsonAtomic } from "../../src/state/atomic.js";
 import { headCommit } from "../../src/util/git.js";
+import { packageVersion } from "../../src/util/version-check.js";
 import { ProjectConfigSchema, RunRecordSchema } from "../../src/state/schema.js";
+
+/** A registry that cannot be reached — keeps `fh status` tests off the network. */
+function offline(): typeof fetch {
+  return vi.fn<typeof fetch>().mockRejectedValue(new Error("offline"));
+}
 
 function makeProject(): { repo: string; stateBase: string; opts: PathsOptions } {
   const repo = mkdtempSync(path.join(tmpdir(), "fh-status-repo-"));
@@ -229,7 +235,7 @@ describe("statusCommand --json", () => {
     process.chdir(repo);
     process.env["FH_STATE_DIR"] = stateBase;
     try {
-      const code = await statusCommand([]);
+      const code = await statusCommand([], { fetchImpl: offline() });
       expect(code).toBe(0);
       const lines = log.mock.calls.flat();
       expect(lines.length).toBeGreaterThan(1);
@@ -257,7 +263,7 @@ describe("statusCommand --json", () => {
     process.chdir(repo);
     process.env["FH_STATE_DIR"] = stateBase;
     try {
-      const code = await statusCommand([]);
+      const code = await statusCommand([], { fetchImpl: offline() });
       expect(code).toBe(0);
       const lines = log.mock.calls.flat().map(String);
       expect(
@@ -269,5 +275,77 @@ describe("statusCommand --json", () => {
       process.chdir(cwd);
       log.mockRestore();
     }
+  });
+});
+
+describe("statusCommand version notice (#39)", () => {
+  const installed = packageVersion();
+  const newer = `${Number(installed.split(".")[0]) + 1}.0.0`;
+
+  function registry(latest: string) {
+    return vi.fn<typeof fetch>(async () => new Response(JSON.stringify({ latest })));
+  }
+
+  /** Runs `fh status` in a fresh project and returns what it printed. */
+  async function runStatus(
+    args: string[],
+    fetchImpl: typeof fetch,
+    project = makeProject(),
+  ): Promise<{ code: number; lines: string[] }> {
+    writeConfig(project.repo);
+    const cwd = process.cwd();
+    const prevStateDir = process.env["FH_STATE_DIR"];
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    process.chdir(project.repo);
+    process.env["FH_STATE_DIR"] = project.stateBase;
+    try {
+      const code = await statusCommand(args, { fetchImpl });
+      return { code, lines: log.mock.calls.flat().map(String) };
+    } finally {
+      if (prevStateDir === undefined) delete process.env["FH_STATE_DIR"];
+      else process.env["FH_STATE_DIR"] = prevStateDir;
+      process.chdir(cwd);
+      log.mockRestore();
+    }
+  }
+
+  it("prints one extra line, last, when npm has a newer version", async () => {
+    const { code, lines } = await runStatus([], registry(newer));
+    expect(code).toBe(0);
+    expect(lines.at(-1)).toBe(
+      `founder-helpers ${installed} installed, ${newer} on npm — npm update -g founder-helpers + restart`,
+    );
+    expect(lines.filter((l) => l.includes("on npm"))).toHaveLength(1);
+  });
+
+  it("prints nothing extra when the installed version is current", async () => {
+    const { code, lines } = await runStatus([], registry(installed));
+    expect(code).toBe(0);
+    expect(lines.some((l) => l.includes("on npm"))).toBe(false);
+  });
+
+  it("prints nothing extra, and still exits 0, when the registry is unreachable", async () => {
+    const { code, lines } = await runStatus([], offline());
+    expect(code).toBe(0);
+    expect(lines.some((l) => l.includes("on npm"))).toBe(false);
+    expect(lines.some((l) => l.startsWith("daemon:"))).toBe(true);
+  });
+
+  it("does not ask the registry twice inside the cache TTL", async () => {
+    const project = makeProject();
+    const fetchImpl = registry(newer);
+    const first = await runStatus([], fetchImpl, project);
+    const second = await runStatus([], fetchImpl, project);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(second.lines.at(-1)).toBe(first.lines.at(-1));
+  });
+
+  it("--json never touches the registry", async () => {
+    const fetchImpl = registry(newer);
+    const { code, lines } = await runStatus(["--json"], fetchImpl);
+    expect(code).toBe(0);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(lines).toHaveLength(1);
+    expect(() => JSON.parse(lines[0] as string)).not.toThrow();
   });
 });

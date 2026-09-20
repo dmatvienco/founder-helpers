@@ -6,6 +6,7 @@ import { statePaths, type PathsOptions } from "../state/paths.js";
 import { RunRecordSchema } from "../state/schema.js";
 import { commitsBehindHead, headCommit } from "../util/git.js";
 import { heartbeatStatus } from "../util/tree-kill.js";
+import { checkForNewerVersion } from "../util/version-check.js";
 import { loadConfig, loadLedger } from "./run.js";
 
 export interface StatusJson {
@@ -105,7 +106,12 @@ export function gatherStatus(projectRoot: string, opts: PathsOptions = {}): Stat
   return { daemon, queue, lastRuns, grants, digest };
 }
 
-export async function statusCommand(args: string[]): Promise<number> {
+export interface StatusDeps {
+  /** Test hook: the fetch behind the "newer version on npm" check. */
+  fetchImpl?: typeof fetch;
+}
+
+export async function statusCommand(args: string[], deps: StatusDeps = {}): Promise<number> {
   const { values } = parseArgs({
     args,
     options: { json: { type: "boolean", default: false } },
@@ -198,5 +204,13 @@ export async function statusCommand(args: string[]): Promise<number> {
   } catch {
     console.log("config: missing — run fh init");
   }
+
+  // Last on purpose: everything above prints at once, and only a black-holed
+  // network can make this wait (bounded by the check's own timeout).
+  const versionNotice = await checkForNewerVersion({
+    cacheFile: sp.versionCheckFile,
+    fetchImpl: deps.fetchImpl,
+  });
+  if (versionNotice) console.log(versionNotice);
   return 0;
 }

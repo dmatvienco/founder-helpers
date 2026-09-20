@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
 import { daemonCommand } from "./cli/daemon.js";
 import { doctorCommand } from "./cli/doctor.js";
 import { grantCommand } from "./cli/grant.js";
@@ -11,6 +8,7 @@ import { runCommand } from "./cli/run.js";
 import { sendCommand } from "./cli/send.js";
 import { sessionCommand } from "./cli/session.js";
 import { statusCommand } from "./cli/status.js";
+import { packageVersion } from "./util/version-check.js";
 
 export interface Command {
   name: string;
@@ -30,15 +28,6 @@ const commands: Command[] = [
   { name: "grant", summary: "Standing permissions: record | list | revoke", run: grantCommand },
   { name: "doctor", summary: "Check the environment and configuration", run: doctorCommand },
 ];
-
-function packageVersion(): string {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  // Both src/ and dist/ sit one level below the package root.
-  const pkg = JSON.parse(readFileSync(path.join(here, "..", "package.json"), "utf8")) as {
-    version: string;
-  };
-  return pkg.version;
-}
 
 function printHelp(): void {
   const commandLines = commands.length

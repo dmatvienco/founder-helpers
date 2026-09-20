@@ -67,6 +67,8 @@ export interface StatePaths {
   logsDir: string;
   /** Photos downloaded from inbound Telegram messages (#24). */
   imagesDir: string;
+  /** Cached npm-registry answer for the "newer version published" check (#39). */
+  versionCheckFile: string;
 }
 
 /** Layout of a single project's state directory (always outside the repo). */
@@ -84,6 +86,7 @@ export function statePaths(projectRoot: string, opts: PathsOptions = {}): StateP
     devDir: path.join(root, "dev"),
     logsDir: path.join(root, "logs"),
     imagesDir: path.join(root, "images"),
+    versionCheckFile: path.join(root, "version-check.json"),
   };
 }
 
