@@ -141,6 +141,16 @@ export const PmSessionSchema = z.object({
 });
 export type PmSession = z.infer<typeof PmSessionSchema>;
 
+/**
+ * Last answer from the npm registry's version check (#39) — daemon/CLI code
+ * ONLY. `checkedAt` drives the TTL, `latest` is the published version seen.
+ */
+export const VersionCheckSchema = z.object({
+  checkedAt: z.string(),
+  latest: z.string(),
+});
+export type VersionCheck = z.infer<typeof VersionCheckSchema>;
+
 /** One headless run's record: state/runs/<id>/record.json */
 export const RunRecordSchema = z.object({
   id: z.string(),
