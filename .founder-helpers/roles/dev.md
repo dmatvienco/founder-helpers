@@ -84,6 +84,13 @@ project-specific lands here. The team edits this file itself as it learns. Commi
   branches without #31 on 2026-09-08). #31 made `setTyping(false)` wait for
   the tick on the wire and the test awaits it, so on main after that merge a
   failure here is news, not the known flake.
+- A bare `node <script>` in the Bash tool needs an approval prompt too, and a
+  compound command (`a && node x; echo "exit=$?"`) is blocked as a whole — even
+  its allowed parts (`mkdir`, `cp`) never run (#38, 2026-09-20). To exercise a
+  `scripts/*.mjs` entry point, drive it from a vitest test that spawns
+  `process.execPath` (see `test/unit/check-lockfile-version.test.ts`, which
+  copies the script into a temp "repo" so the real exit code is checked), and
+  run it with `npm test -- <path>`.
 
 ## Build, test and smoke procedures
 
