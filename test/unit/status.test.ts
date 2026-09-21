@@ -40,12 +40,26 @@ function commit(repo: string, message: string): string {
   return headCommit(repo) as string;
 }
 
-function writeHeartbeat(repo: string, opts: PathsOptions, commitHash: string | null): void {
+/**
+ * `version` omitted = the heartbeat of a daemon that predates the field (the
+ * key is absent from the file, not null); `at` overrides the report time.
+ */
+function writeHeartbeat(
+  repo: string,
+  opts: PathsOptions,
+  commitHash: string | null,
+  extra: { version?: string; at?: string } = {},
+): void {
   const sp = statePaths(repo, opts);
   mkdirSync(sp.root, { recursive: true });
   writeFileSync(
     path.join(sp.root, "heartbeat.json"),
-    JSON.stringify({ pid: process.pid, at: new Date().toISOString(), commit: commitHash }),
+    JSON.stringify({
+      pid: process.pid,
+      at: extra.at ?? new Date().toISOString(),
+      commit: commitHash,
+      ...(extra.version !== undefined ? { version: extra.version } : {}),
+    }),
     "utf8",
   );
 }
@@ -93,6 +107,7 @@ describe("gatherStatus", () => {
         heartbeatAgeSec: null,
         commit: null,
         commitsBehind: null,
+        version: null,
       },
       queue: [],
       lastRuns: [],
@@ -143,6 +158,15 @@ describe("gatherStatus", () => {
     const data = gatherStatus(repo, opts);
     expect(data.daemon.commit).toBe(started);
     expect(data.daemon.commitsBehind).toBe(2);
+  });
+
+  it("reports the version the daemon started with, and null for a heartbeat that predates it (#41)", () => {
+    const { repo, opts } = makeProject();
+    writeHeartbeat(repo, opts, null, { version: "0.10.0" });
+    expect(gatherStatus(repo, opts).daemon.version).toBe("0.10.0");
+
+    writeHeartbeat(repo, opts, null);
+    expect(gatherStatus(repo, opts).daemon.version).toBeNull();
   });
 
   it("reports drift as unknown, not a crash, when the recorded commit isn't reachable", () => {
@@ -211,6 +235,7 @@ describe("statusCommand --json", () => {
           heartbeatAgeSec: null,
           commit: null,
           commitsBehind: null,
+          version: null,
         },
         queue: [{ id: expect.any(String), kind: "issue", issue: 8 }],
         lastRuns: [],
@@ -347,5 +372,83 @@ describe("statusCommand version notice (#39)", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(lines).toHaveLength(1);
     expect(() => JSON.parse(lines[0] as string)).not.toThrow();
+  });
+
+  // #41: the check compares npm against what the daemon RUNS, not what is on disk.
+  describe("running version from the heartbeat (#41)", () => {
+    const old = "0.0.1";
+    const restartLine = (running: string) =>
+      `daemon runs ${running}, disk has ${installed} — restart the daemon`;
+
+    function projectWithHeartbeat(extra: { version?: string; at?: string }) {
+      const project = makeProject();
+      writeHeartbeat(project.repo, project.opts, null, extra);
+      return project;
+    }
+
+    it("stays silent when running, disk and npm all agree", async () => {
+      const { lines } = await runStatus(
+        [],
+        registry(installed),
+        projectWithHeartbeat({ version: installed }),
+      );
+      expect(lines.some((l) => l.includes("on npm"))).toBe(false);
+      expect(lines.some((l) => l.includes("restart the daemon"))).toBe(false);
+    });
+
+    it("says to restart when the daemon runs an older version than the disk, and still names the running one to npm", async () => {
+      // The case #39 missed: `npm update -g` done (disk == npm), daemon not restarted.
+      const { code, lines } = await runStatus(
+        [],
+        registry(installed),
+        projectWithHeartbeat({ version: old }),
+      );
+      expect(code).toBe(0);
+      expect(lines.filter((l) => l.includes("restart the daemon"))).toEqual([restartLine(old)]);
+      expect(lines.at(-1)).toBe(
+        `founder-helpers ${old} installed, ${installed} on npm — npm update -g founder-helpers + restart`,
+      );
+    });
+
+    it("keys the newer-version notice on the running version when npm is ahead of it", async () => {
+      const { lines } = await runStatus(
+        [],
+        registry(newer),
+        projectWithHeartbeat({ version: old }),
+      );
+      expect(lines.at(-1)).toBe(
+        `founder-helpers ${old} installed, ${newer} on npm — npm update -g founder-helpers + restart`,
+      );
+    });
+
+    it("falls back to the disk version for a heartbeat that has no version", async () => {
+      const { code, lines } = await runStatus([], registry(newer), projectWithHeartbeat({}));
+      expect(code).toBe(0);
+      expect(lines.some((l) => l.includes("restart the daemon"))).toBe(false);
+      expect(lines.at(-1)).toBe(
+        `founder-helpers ${installed} installed, ${newer} on npm — npm update -g founder-helpers + restart`,
+      );
+    });
+
+    it("ignores the version of a daemon that is no longer running", async () => {
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60_000).toISOString();
+      const { lines } = await runStatus(
+        [],
+        registry(installed),
+        projectWithHeartbeat({ version: old, at: tenMinutesAgo }),
+      );
+      expect(lines.some((l) => l.startsWith("daemon: NOT running"))).toBe(true);
+      expect(lines.some((l) => l.includes("restart the daemon"))).toBe(false);
+      expect(lines.some((l) => l.includes("on npm"))).toBe(false);
+    });
+
+    it("--json exposes the running version as daemon.version", async () => {
+      const { lines } = await runStatus(
+        ["--json"],
+        registry(newer),
+        projectWithHeartbeat({ version: old }),
+      );
+      expect(JSON.parse(lines[0] as string).daemon.version).toBe(old);
+    });
   });
 });

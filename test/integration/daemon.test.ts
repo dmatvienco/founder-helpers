@@ -470,6 +470,13 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
     });
   });
 
+  it("records the version it started with in the heartbeat (#41)", async () => {
+    const env = await makeEnv();
+    await boot(env, []);
+    const hb = JSON.parse(readFileSync(path.join(env.sp.root, "heartbeat.json"), "utf8"));
+    expect(hb).toMatchObject({ pid: process.pid, version: packageVersion() });
+  });
+
   it("second daemon instance dies loudly on the lock", async () => {
     const env = await makeEnv();
     await boot(env, []);

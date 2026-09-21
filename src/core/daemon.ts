@@ -10,7 +10,7 @@ import type { Transport } from "../transport/transport.js";
 import type { Runner } from "../runner/runner.js";
 import { headCommit } from "../util/git.js";
 import { heartbeatStatus } from "../util/tree-kill.js";
-import { checkForNewerVersion } from "../util/version-check.js";
+import { checkForNewerVersion, packageVersion } from "../util/version-check.js";
 import { addJob } from "./queue.js";
 import { resetPmSession } from "./pm-session.js";
 import { ReplyLane } from "./reply.js";
@@ -134,13 +134,27 @@ export async function startDaemon(
   // Captured once: the daemon's in-process module graph never hot-reloads,
   // so this stays the commit it was started from until the process restarts.
   const startCommit = headCommit(projectRoot);
+  // Same reasoning for the version: package.json is re-read from disk on every
+  // call, so after `npm update -g` without a restart the disk moves on while
+  // this process keeps running the old code. `fh status` compares the two (#41).
+  let startVersion: string | null = null;
+  try {
+    startVersion = packageVersion();
+  } catch {
+    // unreadable package.json: the heartbeat records null, status falls back to disk
+  }
 
   const heartbeatFile = path.join(sp.root, "heartbeat.json");
   const heartbeat = (): void => {
     try {
       writeFileSync(
         heartbeatFile,
-        JSON.stringify({ pid: process.pid, at: new Date().toISOString(), commit: startCommit }),
+        JSON.stringify({
+          pid: process.pid,
+          at: new Date().toISOString(),
+          commit: startCommit,
+          version: startVersion,
+        }),
         "utf8",
       );
     } catch {
