@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.1
+
+- `fh status` now checks the version the daemon is actually running, not the
+  one on disk. The daemon records its package version in `heartbeat.json` at
+  start; after `npm update -g founder-helpers` without a restart, `fh status`
+  prints `daemon runs 0.11.0, disk has 0.11.1 — restart the daemon` instead of
+  going quiet because disk already matches npm. `fh status --json` exposes it
+  as `daemon.version`. A heartbeat from an older daemon carries no version and
+  keeps the previous behavior (#41).
+
 ## 0.11.0
 
 - The daemon no longer runs an old version in silence: on start it compares
