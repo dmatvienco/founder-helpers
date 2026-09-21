@@ -6,7 +6,7 @@ import { statePaths, type PathsOptions } from "../state/paths.js";
 import { RunRecordSchema } from "../state/schema.js";
 import { commitsBehindHead, headCommit } from "../util/git.js";
 import { heartbeatStatus } from "../util/tree-kill.js";
-import { checkForNewerVersion } from "../util/version-check.js";
+import { checkForNewerVersion, packageVersion } from "../util/version-check.js";
 import { loadConfig, loadLedger } from "./run.js";
 
 export interface StatusJson {
@@ -16,6 +16,8 @@ export interface StatusJson {
     heartbeatAgeSec: number | null;
     commit: string | null;
     commitsBehind: number | null;
+    /** Package version the daemon process started with; null when its heartbeat predates the field. */
+    version: string | null;
   };
   queue: Array<{ id: string; kind: string; issue?: number; retryAt?: string }>;
   lastRuns: Array<{ id: string; role: string; status: string }>;
@@ -27,6 +29,20 @@ interface Heartbeat {
   pid: number;
   at: string;
   commit?: string | null;
+  version?: string | null;
+}
+
+function heartbeatVersion(hb: Heartbeat): string | null {
+  return typeof hb.version === "string" && hb.version ? hb.version : null;
+}
+
+/** The version package.json says right now; null when it cannot be read — status never dies on it. */
+function diskVersion(): string | null {
+  try {
+    return packageVersion();
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -42,6 +58,7 @@ export function gatherStatus(projectRoot: string, opts: PathsOptions = {}): Stat
     heartbeatAgeSec: null,
     commit: null,
     commitsBehind: null,
+    version: null,
   };
   const hbFile = path.join(sp.root, "heartbeat.json");
   if (existsSync(hbFile)) {
@@ -55,9 +72,10 @@ export function gatherStatus(projectRoot: string, opts: PathsOptions = {}): Stat
         heartbeatAgeSec,
         commit,
         commitsBehind: commit ? commitsBehindHead(projectRoot, commit) : null,
+        version: heartbeatVersion(hb),
       };
     } catch {
-      // unreadable heartbeat: report as not running, pid/age/commit unknown
+      // unreadable heartbeat: report as not running, pid/age/commit/version unknown
     }
   }
 
@@ -125,6 +143,11 @@ export async function statusCommand(args: string[], deps: StatusDeps = {}): Prom
 
   const sp = statePaths(projectRoot);
 
+  // What the LIVE daemon runs, when its heartbeat says so. After
+  // `npm update -g` without a restart that differs from what is on disk, and
+  // the npm check below must compare against it, not against the disk (#41).
+  let runningVersion: string | undefined;
+
   // Daemon liveness via heartbeat.
   const hbFile = path.join(sp.root, "heartbeat.json");
   if (existsSync(hbFile)) {
@@ -153,6 +176,16 @@ export async function statusCommand(args: string[], deps: StatusDeps = {}): Prom
         }
       } else {
         console.log("daemon commit: unknown (started before this daemon recorded it)");
+      }
+
+      // A dead daemon's recorded version says nothing: the next start reads the disk.
+      const version = heartbeatVersion(hb);
+      if (alive && version) {
+        runningVersion = version;
+        const onDisk = diskVersion();
+        if (onDisk && onDisk !== version) {
+          console.log(`daemon runs ${version}, disk has ${onDisk} — restart the daemon`);
+        }
       }
     } catch {
       console.log("daemon: unknown (heartbeat unreadable)");
@@ -209,6 +242,7 @@ export async function statusCommand(args: string[], deps: StatusDeps = {}): Prom
   // network can make this wait (bounded by the check's own timeout).
   const versionNotice = await checkForNewerVersion({
     cacheFile: sp.versionCheckFile,
+    installed: runningVersion,
     fetchImpl: deps.fetchImpl,
   });
   if (versionNotice) console.log(versionNotice);
