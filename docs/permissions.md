@@ -8,6 +8,22 @@ In headless `-p` mode a denied tool fails SOFT: the model receives the denial
 and is required by its template to report the exact unblock recipe instead of
 faking success.
 
+## Running on Codex: the permissions caveat
+
+Everything above — the generated allowlist/deny rules, including "do not push
+to the integration branch without a `git.push_integration_branch` grant" — is
+a **Claude Code settings-file feature**. It has **no Codex equivalent**. Under
+`runner.kind: "codex"` (picked in `fh init`, or set directly in
+`.founder-helpers/config.json`), those boundaries rest on Codex's own sandbox
+mode plus the role prompts alone — there is no code-enforced backstop if a
+prompt is ignored or a run goes off the rails.
+
+`fh grant` and the permissions ledger below still work exactly the same way
+under Codex — they remain the team's own authority record, and role prompts
+still consult it. What changes is that **nothing below the model enforces
+it**: no denied-tool failure, no generated allowlist. Pick Codex only with
+that trade-off in mind.
+
 ## Standing grants
 
 When you tell the team "do it and don't ask again", the PM records it:

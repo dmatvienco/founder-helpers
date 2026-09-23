@@ -39,6 +39,13 @@ grants + language + run context) → `claude -p` with a hard timeout and a
 process-tree kill → captured output → run record. Session-limit output
 pauses the queue with a backoff instead of hammering the CLI.
 
+`Runner` (`src/runner/runner.ts`) has one implementation per session engine —
+`ClaudeRunner` and `CodexRunner`, selected by `runner.kind` — sharing that
+same timeout/kill/output-log contract. Each engine's own stream format is
+parsed in its own file (`stream-json.ts` for Claude, `codex-stream.ts` for
+Codex); the CLI-facing facts a human sees (binary name, credentials path,
+login command, install URL) live in `src/cli/engine.ts`.
+
 ## Brains vs memory
 
 Templates (this package, English, updated by npm) carry the mechanics.
