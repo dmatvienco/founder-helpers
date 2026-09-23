@@ -41,7 +41,10 @@ describe("parseCodexLine", () => {
   });
 
   it("maps an unrelated error event to plain text instead of auth_error", () => {
-    const line = JSON.stringify({ id: "5", msg: { type: "error", message: "rate limit exceeded" } });
+    const line = JSON.stringify({
+      id: "5",
+      msg: { type: "error", message: "rate limit exceeded" },
+    });
     expect(parseCodexLine(line)).toEqual([{ kind: "text", text: "rate limit exceeded" }]);
   });
 

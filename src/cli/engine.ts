@@ -67,7 +67,9 @@ export async function pickEngine(io: PairIo, current: EngineKind): Promise<Engin
   io.say("Which engine runs your team's headless sessions?");
   io.say(`  1) ${ENGINES.claude.label} — default`);
   io.say(`  2) ${ENGINES.codex.label}`);
-  const answer = (await io.ask(`Engine [Enter = ${ENGINES[current].label}]: `)).trim().toLowerCase();
+  const answer = (await io.ask(`Engine [Enter = ${ENGINES[current].label}]: `))
+    .trim()
+    .toLowerCase();
   if (!answer) return current;
   if (answer === "2" || answer === "codex") return "codex";
   if (answer === "1" || answer === "claude") return "claude";
