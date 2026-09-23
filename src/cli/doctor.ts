@@ -2,6 +2,7 @@ import { accessSync, constants, existsSync, readFileSync, statSync } from "node:
 import { homedir } from "node:os";
 import path from "node:path";
 import { ENGINES, type EngineKind } from "./engine.js";
+import { KNOWN_MODELS } from "./model-picker.js";
 import { projectConfigDir, statePaths, type PathsOptions } from "../state/paths.js";
 import { LedgerSchema, ProjectConfigSchema } from "../state/schema.js";
 import { commandExists } from "../util/proc.js";
@@ -67,15 +68,39 @@ export function checkEngineAuth(engine: EngineKind, opts: PathsOptions = {}): Ch
   return { name, level: "ok", detail: "credentials refreshed recently" };
 }
 
-/** Reads `runner.kind` from the committed config; falls back to "claude" when config is missing/unreadable — the pre-init case doctor already has to survive. */
-function readEngineKind(projectRoot: string): EngineKind {
+/** Reads `runner.kind`/`runner.model` from the committed config; `undefined` when config is missing/unreadable — the pre-init case doctor already has to survive (callers fall back to "claude" for the kind, same as before). */
+function readRunnerConfig(projectRoot: string): { kind: EngineKind; model: string } | undefined {
   try {
     const file = path.join(projectConfigDir(projectRoot), "config.json");
     const config = ProjectConfigSchema.parse(JSON.parse(readFileSync(file, "utf8")));
-    return config.runner.kind === "codex" ? "codex" : "claude";
+    return {
+      kind: config.runner.kind === "codex" ? "codex" : "claude",
+      model: config.runner.model,
+    };
   } catch {
-    return "claude";
+    return undefined;
   }
+}
+
+function otherEngine(kind: EngineKind): EngineKind {
+  return kind === "claude" ? "codex" : "claude";
+}
+
+// Loose "this id looks like it belongs to THIS engine" hint, used only to spot
+// the OTHER engine's id surviving under the wrong kind (#44) — never to
+// validate the current engine's own free-text ids, which must stay legal.
+// Codex ids are UNVERIFIED (no network while this was written, #42/#43/#44).
+const ENGINE_MODEL_HINT: Record<EngineKind, RegExp> = {
+  claude: /^claude-/i,
+  codex: /^(gpt-|o\d)/i,
+};
+
+/** True when `model` looks like the OTHER engine's id/alias rather than `kind`'s own — the #44 bug: a stale model surviving an engine switch. An unrecognized free-text id (neither engine's pattern nor a known alias) is never flagged. */
+function looksLikeOtherEngineModel(model: string, kind: EngineKind): boolean {
+  const other = otherEngine(kind);
+  return (
+    ENGINE_MODEL_HINT[other].test(model) || KNOWN_MODELS[other].some((m) => m.alias === model)
+  );
 }
 
 /** All environment/config checks that exist so far (grows with each milestone). */
@@ -98,7 +123,8 @@ export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[]
       : `${projectRoot} is not a git repository`,
   });
 
-  const engine = readEngineKind(projectRoot);
+  const runnerConfig = readRunnerConfig(projectRoot);
+  const engine = runnerConfig?.kind ?? "claude";
   const engineInfo = ENGINES[engine];
   checks.push({
     name: `${engine} CLI`,
@@ -120,6 +146,19 @@ export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[]
 
   const configDir = projectConfigDir(projectRoot);
   checks.push(jsonFileCheck("config", path.join(configDir, "config.json"), ProjectConfigSchema));
+
+  if (runnerConfig && looksLikeOtherEngineModel(runnerConfig.model, runnerConfig.kind)) {
+    const other = otherEngine(runnerConfig.kind);
+    checks.push({
+      name: "runner.model",
+      level: "warn",
+      detail:
+        `"${runnerConfig.model}" looks like a ${ENGINES[other].label} model, but runner.kind ` +
+        `is "${runnerConfig.kind}" — likely a stale value from switching engines. Try ` +
+        `"${ENGINES[runnerConfig.kind].defaultModel}" or re-run "fh init".`,
+    });
+  }
+
   checks.push(
     jsonFileCheck("permissions ledger", path.join(configDir, "permissions.json"), LedgerSchema),
   );
