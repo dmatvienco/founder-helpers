@@ -61,4 +61,41 @@ describe("buildCodexArgs", () => {
     const args = buildCodexArgs(baseSpec({ settingsFile: "/tmp/claude-settings.json" }));
     expect(args.join(" ")).not.toContain("claude-settings.json");
   });
+
+  it("threads addDirs into the sandboxed run as writable roots", () => {
+    const args = buildCodexArgs(baseSpec({ addDirs: ["/tmp/state"] }));
+    expect(args).toEqual([
+      "exec",
+      "@/tmp/prompt.md",
+      "--model",
+      "gpt-5-codex",
+      "--json",
+      "--sandbox",
+      "workspace-write",
+      "--config",
+      'sandbox_workspace_write.writable_roots=["/tmp/state"]',
+    ]);
+  });
+
+  it("omits the writable-roots flag under bypass even when addDirs is set — no sandbox to widen", () => {
+    const args = buildCodexArgs(
+      baseSpec({ permissionMode: "bypass", addDirs: ["/tmp/state"] }),
+    );
+    expect(args).not.toContain("--config");
+    expect(args.join(" ")).not.toContain("writable_roots");
+  });
+
+  it("produces exactly today's argument list when addDirs is empty — no stray flag", () => {
+    const args = buildCodexArgs(baseSpec({ addDirs: [] }));
+    expect(args).toEqual([
+      "exec",
+      "@/tmp/prompt.md",
+      "--model",
+      "gpt-5-codex",
+      "--json",
+      "--sandbox",
+      "workspace-write",
+    ]);
+    expect(args).not.toContain("--config");
+  });
 });

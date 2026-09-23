@@ -15,12 +15,18 @@ const TAIL_LIMIT = 64 * 1024; // keep the last 64KB of extracted text for status
  * while this was written (#42) — model knowledge only. A wrong flag must be
  * a one-line fix plus a test update here, not a hunt through the runner.
  *
- *   codex [binArgs] exec [resume <id>] "<prompt>" --model <m> --json --sandbox workspace-write
+ *   codex [binArgs] exec [resume <id>] "<prompt>" --model <m> --json --sandbox workspace-write [--config sandbox_workspace_write.writable_roots=[...]]
  *   codex [binArgs] exec [resume <id>] "<prompt>" --model <m> --json --dangerously-bypass-approvals-and-sandbox
  *
  * `settingsFile` has no Codex equivalent (no per-command allow/deny list)
  * and is deliberately not read here — the runner logs its own caveat line
  * for it instead of silently dropping it.
+ *
+ * `spec.addDirs` (state dir etc., ClaudeRunner's `--add-dir`) is threaded in
+ * as extra writable roots ONLY under the workspace-write sandbox — under
+ * bypass there is no sandbox to widen, so it's skipped there. The
+ * `sandbox_workspace_write.writable_roots` config key is the same kind of
+ * unverified model knowledge as every other flag above (#45).
  */
 export function buildCodexArgs(spec: RunSpec): string[] {
   const args: string[] = [...(spec.binArgs ?? []), "exec"];
@@ -30,6 +36,10 @@ export function buildCodexArgs(spec: RunSpec): string[] {
     args.push("--dangerously-bypass-approvals-and-sandbox");
   } else {
     args.push("--sandbox", "workspace-write");
+    if (spec.addDirs.length > 0) {
+      const roots = spec.addDirs.map((dir) => JSON.stringify(dir)).join(",");
+      args.push("--config", `sandbox_workspace_write.writable_roots=[${roots}]`);
+    }
   }
   return args;
 }
