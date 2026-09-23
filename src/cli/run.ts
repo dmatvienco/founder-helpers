@@ -67,7 +67,12 @@ function newRunId(role: string): string {
   return `${stamp}_${role}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
-function selectRunner(config: ProjectConfig, sp: { root: string }, override?: Runner): Runner {
+/** Exported so callers other than runRole (e.g. `fh doctor --deep`'s live check) can build a RunSpec through the identical runner-selection path — same FH_RUNNER/FH_MOCK_SCENARIOS test hooks, same config fallback. */
+export function selectRunner(
+  config: ProjectConfig,
+  sp: { root: string },
+  override?: Runner,
+): Runner {
   if (override) return override;
   const kind = process.env["FH_RUNNER"] ?? config.runner.kind;
   if (kind === "mock") {
