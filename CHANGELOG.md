@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.12.0
+
+- A team can now run on the OpenAI Codex CLI instead of Claude Code:
+  `runner.kind: "codex"` selects a `CodexRunner` behind the same `Runner`
+  interface — same hard timeout and process-tree kill, same status handling
+  and session resume, with its own JSONL event parsing and its own
+  rate-limit/auth detection. Claude's detection is untouched and `"claude"`
+  stays the default, so an existing install sees no change (#42, #45).
+- `fh init` asks which engine to use before asking for a model and offers
+  that engine's own model list; `fh doctor` checks the configured engine's
+  CLI and credentials instead of always looking for Claude Code, and warns
+  when `runner.model` looks like the other engine's id (#43, #44).
+- Caveat, documented in `docs/permissions.md`: the generated Claude
+  allowlist and deny rules — including the deny on pushing to the
+  integration branch without a grant — are a Claude Code settings-file
+  feature with no Codex equivalent. Under `runner.kind: "codex"` those
+  boundaries rest on the sandbox mode and the role prompts alone.
+- The Codex CLI's own flags (`exec`, `--model`, `--json`, the sandbox flags,
+  `exec resume`) were implemented from documentation, not verified against a
+  live binary. They are built in one function so a correction is a one-line
+  change.
+
 ## 0.11.1
 
 - `fh status` now checks the version the daemon is actually running, not the
