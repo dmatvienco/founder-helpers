@@ -22,10 +22,10 @@ describe("pickModel", () => {
     expect(model).toBe("claude-sonnet-5");
   });
 
-  it("picks a known alias by list number", async () => {
+  it("picks a known alias by list number (claude, the default engine)", async () => {
     const picker = io(["2"]);
     const model = await pickModel(picker, "claude-sonnet-5");
-    expect(model).toBe(KNOWN_MODELS[1]?.alias);
+    expect(model).toBe(KNOWN_MODELS.claude[1]?.alias);
   });
 
   it("accepts a full model id typed directly, unlisted models included", async () => {
@@ -40,11 +40,28 @@ describe("pickModel", () => {
     expect(model).toBe("99");
   });
 
-  it("lists every known alias before asking", async () => {
+  it("lists every known claude alias before asking", async () => {
     const picker = io([""]);
     await pickModel(picker, "claude-sonnet-5");
-    for (const m of KNOWN_MODELS) {
+    for (const m of KNOWN_MODELS.claude) {
       expect(picker.said.some((l) => l.includes(m.alias))).toBe(true);
+    }
+  });
+
+  it("picks from the codex list when the codex engine is passed", async () => {
+    const picker = io(["1"]);
+    const model = await pickModel(picker, "gpt-5-codex", "codex");
+    expect(model).toBe(KNOWN_MODELS.codex[0]?.alias);
+  });
+
+  it("lists codex aliases, not claude ones, for the codex engine", async () => {
+    const picker = io([""]);
+    await pickModel(picker, "gpt-5-codex", "codex");
+    for (const m of KNOWN_MODELS.codex) {
+      expect(picker.said.some((l) => l.includes(m.alias))).toBe(true);
+    }
+    for (const m of KNOWN_MODELS.claude) {
+      expect(picker.said.some((l) => l.includes(m.alias))).toBe(false);
     }
   });
 });

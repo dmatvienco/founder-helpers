@@ -32,6 +32,9 @@ was built by this repo's own AI team. Docs: [getting started](docs/getting-start
 - A **permissions ledger** records your "do it and don't ask again" grants — with your exact
   words, a date, and a revoke command. Merging to your main branch stays gated until you
   explicitly grant it
+- Two session engines: Claude Code (default) or [Codex](https://github.com/openai/codex),
+  picked in `fh init` — running on Codex trades away the generated allowlist that enforces
+  those boundaries in code; see [the permissions caveat](docs/permissions.md#running-on-codex-the-permissions-caveat)
 
 ## License
 

@@ -1,6 +1,8 @@
 import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { ENGINES, type EngineKind } from "./engine.js";
+import { KNOWN_MODELS } from "./model-picker.js";
 import { projectConfigDir, statePaths, type PathsOptions } from "../state/paths.js";
 import { LedgerSchema, ProjectConfigSchema } from "../state/schema.js";
 import { commandExists } from "../util/proc.js";
@@ -34,22 +36,23 @@ function jsonFileCheck(
   }
 }
 
-// Claude Code stores its OAuth token at ~/.claude/.credentials.json, refreshed
-// on every successful CLI call. We can't read its actual expiry (format is
-// undocumented/version-dependent), so this is a freshness heuristic, not a
-// real validity check — hence "warn", never "fail" (#21).
+// Both engines refresh their credentials file on every successful CLI call.
+// We can't read either format's real expiry (undocumented/version-dependent,
+// and for Codex unverified altogether — #42/#43), so this is a freshness
+// heuristic, not a real validity check — hence "warn", never "fail" (#21).
 const CREDENTIALS_STALE_MS = 48 * 60 * 60 * 1000;
 
 /** Best-effort OAuth-freshness probe: catches an expired-and-unrefreshable session before a headless run does. */
-export function checkClaudeAuth(opts: PathsOptions = {}): Check {
+export function checkEngineAuth(engine: EngineKind, opts: PathsOptions = {}): Check {
   const home = opts.home ?? homedir();
-  const file = path.join(home, ".claude", ".credentials.json");
-  const name = "claude auth";
+  const info = ENGINES[engine];
+  const file = info.credentialsPath(home);
+  const name = `${engine} auth`;
   if (!existsSync(file)) {
     return {
       name,
       level: "warn",
-      detail: `${file} not found — log in once with "claude /login" (or "claude login")`,
+      detail: `${file} not found — log in once with ${info.loginCommand}`,
     };
   }
   const ageMs = Date.now() - statSync(file).mtimeMs;
@@ -59,10 +62,45 @@ export function checkClaudeAuth(opts: PathsOptions = {}): Check {
       level: "warn",
       detail:
         `credentials untouched for ${Math.round(ageMs / 3_600_000)}h — if headless runs start failing ` +
-        `with an auth error, run "claude /login" (or "claude login")`,
+        `with an auth error, run ${info.loginCommand}`,
     };
   }
   return { name, level: "ok", detail: "credentials refreshed recently" };
+}
+
+/** Reads `runner.kind`/`runner.model` from the committed config; `undefined` when config is missing/unreadable — the pre-init case doctor already has to survive (callers fall back to "claude" for the kind, same as before). */
+function readRunnerConfig(projectRoot: string): { kind: EngineKind; model: string } | undefined {
+  try {
+    const file = path.join(projectConfigDir(projectRoot), "config.json");
+    const config = ProjectConfigSchema.parse(JSON.parse(readFileSync(file, "utf8")));
+    return {
+      kind: config.runner.kind === "codex" ? "codex" : "claude",
+      model: config.runner.model,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function otherEngine(kind: EngineKind): EngineKind {
+  return kind === "claude" ? "codex" : "claude";
+}
+
+// Loose "this id looks like it belongs to THIS engine" hint, used only to spot
+// the OTHER engine's id surviving under the wrong kind (#44) — never to
+// validate the current engine's own free-text ids, which must stay legal.
+// Codex ids are UNVERIFIED (no network while this was written, #42/#43/#44).
+const ENGINE_MODEL_HINT: Record<EngineKind, RegExp> = {
+  claude: /^claude-/i,
+  codex: /^(gpt-|o\d)/i,
+};
+
+/** True when `model` looks like the OTHER engine's id/alias rather than `kind`'s own — the #44 bug: a stale model surviving an engine switch. An unrecognized free-text id (neither engine's pattern nor a known alias) is never flagged. */
+function looksLikeOtherEngineModel(model: string, kind: EngineKind): boolean {
+  const other = otherEngine(kind);
+  return (
+    ENGINE_MODEL_HINT[other].test(model) || KNOWN_MODELS[other].some((m) => m.alias === model)
+  );
 }
 
 /** All environment/config checks that exist so far (grows with each milestone). */
@@ -85,12 +123,15 @@ export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[]
       : `${projectRoot} is not a git repository`,
   });
 
+  const runnerConfig = readRunnerConfig(projectRoot);
+  const engine = runnerConfig?.kind ?? "claude";
+  const engineInfo = ENGINES[engine];
   checks.push({
-    name: "claude CLI",
-    level: commandExists("claude") ? "ok" : "fail",
-    detail: commandExists("claude")
+    name: `${engine} CLI`,
+    level: commandExists(engineInfo.binary) ? "ok" : "fail",
+    detail: commandExists(engineInfo.binary)
       ? "found on PATH"
-      : "not found on PATH — install Claude Code (https://claude.com/claude-code)",
+      : `not found on PATH — install ${engineInfo.label} (${engineInfo.installUrl})`,
   });
 
   checks.push({
@@ -101,10 +142,23 @@ export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[]
       : "not found — the team manages work through GitHub issues; install gh and run gh auth login",
   });
 
-  checks.push(checkClaudeAuth(opts));
+  checks.push(checkEngineAuth(engine, opts));
 
   const configDir = projectConfigDir(projectRoot);
   checks.push(jsonFileCheck("config", path.join(configDir, "config.json"), ProjectConfigSchema));
+
+  if (runnerConfig && looksLikeOtherEngineModel(runnerConfig.model, runnerConfig.kind)) {
+    const other = otherEngine(runnerConfig.kind);
+    checks.push({
+      name: "runner.model",
+      level: "warn",
+      detail:
+        `"${runnerConfig.model}" looks like a ${ENGINES[other].label} model, but runner.kind ` +
+        `is "${runnerConfig.kind}" — likely a stale value from switching engines. Try ` +
+        `"${ENGINES[runnerConfig.kind].defaultModel}" or re-run "fh init".`,
+    });
+  }
+
   checks.push(
     jsonFileCheck("permissions ledger", path.join(configDir, "permissions.json"), LedgerSchema),
   );
