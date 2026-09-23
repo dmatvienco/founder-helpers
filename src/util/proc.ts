@@ -36,8 +36,11 @@ export function spawnTracked(
   });
 }
 
+/** Injectable seam for PATH lookups — the real host's PATH is not stubbable in tests (see GhExec for the same shape). */
+export type BinaryExists = (cmd: string) => boolean;
+
 /** Resolve a command's existence without running it (which/where). */
-export function commandExists(cmd: string): boolean {
+export const commandExists: BinaryExists = (cmd) => {
   const probe = process.platform === "win32" ? "where" : "which";
   try {
     execFileSync(probe, [cmd], { stdio: "ignore" });
@@ -45,4 +48,4 @@ export function commandExists(cmd: string): boolean {
   } catch {
     return false;
   }
-}
+};

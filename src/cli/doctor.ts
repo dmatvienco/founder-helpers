@@ -26,7 +26,7 @@ import {
   type ProjectConfig,
 } from "../state/schema.js";
 import { execGh, type GhExec } from "../util/gh.js";
-import { commandExists } from "../util/proc.js";
+import { commandExists, type BinaryExists } from "../util/proc.js";
 import { branchExistsOnOrigin, defaultBranch, hasOriginRemote, isGitRepo } from "../util/git.js";
 
 export type CheckLevel = "ok" | "warn" | "fail";
@@ -123,8 +123,8 @@ function looksLikeOtherEngineModel(model: string, kind: EngineKind): boolean {
 }
 
 /** gh is logged in at all — checked before anything that needs a token, and the ONLY one of the three gh checks run when gh isn't even on PATH (so that case still gets a `fail`, not silence). */
-function checkGhAuth(gh: GhExec, cwd: string): Check {
-  if (!commandExists("gh")) {
+function checkGhAuth(gh: GhExec, cwd: string, binaryExists: BinaryExists): Check {
+  if (!binaryExists("gh")) {
     return {
       name: "gh auth",
       level: "fail",
@@ -188,12 +188,15 @@ function checkLabels(gh: GhExec, cwd: string, labels: ProjectConfig["labels"]): 
 export interface RunChecksOptions extends PathsOptions {
   /** Test hook: injected gh CLI exec — auth/network can't run for real in tests. */
   gh?: GhExec;
+  /** Test hook: injected PATH lookup — the real host's PATH (e.g. no `claude` on a CI runner) can't be relied on in tests. */
+  binaryExists?: BinaryExists;
 }
 
 /** All environment/config checks that exist so far (grows with each milestone). */
 export function runChecks(projectRoot: string, opts: RunChecksOptions = {}): Check[] {
   const checks: Check[] = [];
   const gh = opts.gh ?? execGh;
+  const binaryExists = opts.binaryExists ?? commandExists;
 
   const [major] = process.versions.node.split(".").map(Number);
   checks.push({
@@ -241,21 +244,21 @@ export function runChecks(projectRoot: string, opts: RunChecksOptions = {}): Che
   const engineInfo = ENGINES[engine];
   checks.push({
     name: `${engine} CLI`,
-    level: commandExists(engineInfo.binary) ? "ok" : "fail",
-    detail: commandExists(engineInfo.binary)
+    level: binaryExists(engineInfo.binary) ? "ok" : "fail",
+    detail: binaryExists(engineInfo.binary)
       ? "found on PATH"
       : `not found on PATH — install ${engineInfo.label} (${engineInfo.installUrl})`,
   });
 
   checks.push({
     name: "gh CLI",
-    level: commandExists("gh") ? "ok" : "warn",
-    detail: commandExists("gh")
+    level: binaryExists("gh") ? "ok" : "warn",
+    detail: binaryExists("gh")
       ? "found on PATH"
       : "not found — the team manages work through GitHub issues; install gh and run gh auth login",
   });
 
-  const ghAuth = checkGhAuth(gh, projectRoot);
+  const ghAuth = checkGhAuth(gh, projectRoot, binaryExists);
   checks.push(ghAuth);
   if (ghAuth.level === "ok") {
     const ghRepoAccess = checkGhRepoAccess(gh, projectRoot);
@@ -616,6 +619,8 @@ export async function runDeepCheck(
 export interface DoctorCommandOptions {
   /** Test hook: injected gh CLI exec, threaded down to runChecks — auth/network can't run for real in tests. */
   gh?: GhExec;
+  /** Test hook: injected PATH lookup, threaded down to runChecks — the real host's PATH can't be relied on in tests. */
+  binaryExists?: BinaryExists;
 }
 
 export async function doctorCommand(
@@ -633,7 +638,7 @@ export async function doctorCommand(
   });
   const cwd = process.cwd();
   const checks = [
-    ...runChecks(cwd, { gh: opts.gh }),
+    ...runChecks(cwd, { gh: opts.gh, binaryExists: opts.binaryExists }),
     ...(await runTelegramChecks(cwd, { send: Boolean(values.send) })),
   ];
   const icon: Record<CheckLevel, string> = { ok: "✓", warn: "!", fail: "✗" };
