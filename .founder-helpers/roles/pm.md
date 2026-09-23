@@ -152,6 +152,26 @@ on all three OSes instead of shipping a lockfile that still claims the old
 version. Reviewer remark 4 on #38: the guard belongs to the release
 procedure, which is the PM's lane, not the issue's scope.
 
+### Watch the CI run your own push triggered (since 2026-09-23)
+
+After ANY push to the integration branch — a merge as much as a release —
+watch the CI run it triggers to completion before reporting done
+(`gh run list --branch main --limit 1` for the id, then `gh run watch <id>
+--exit-status`). A local green is not the same fact: this machine has Claude
+Code installed, `gh` authenticated and a populated PATH, and a check that
+silently depends on any of that passes here and fails on a fresh runner —
+which is also the wife's machine, and every new user's.
+
+The incident: on 2026-09-23 chore run pm_t9ip merged #46/#47 as 58c3271,
+re-ran typecheck/tests/build locally (green, 364/364) and never looked at
+the CI run its push started. That run was red on all three OSes — three
+`test/unit/doctor.test.ts` tests asked the real host whether `claude` was on
+PATH. Main stayed red for 25 minutes, the next run's release was stopped at
+the CI gate (the tag was never pushed), and the red was found only because a
+release happens to watch CI. Cost: one extra issue (#48), one extra chore
+run, a stopped release. Reporting "merged, checks green" while the
+integration branch is actually red is the failure this prevents.
+
 ## Lessons learned
 
 <!-- Corrections the founder gave and their WHY — newest on top, with dates. -->
