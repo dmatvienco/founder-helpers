@@ -13,6 +13,7 @@ import { MockRunner, type MockScenario } from "../../src/runner/mock-runner.js";
 import { statePaths } from "../../src/state/paths.js";
 import { saveSecrets } from "../../src/state/secrets.js";
 import type { GhExec } from "../../src/util/gh.js";
+import type { BinaryExists } from "../../src/util/proc.js";
 import { startMockTelegram } from "../helpers/mock-telegram.js";
 
 const fixturesBin = path.join(
@@ -42,6 +43,11 @@ const greenGh: GhExec = (args) => {
   }
   return { ok: false, stdout: "", stderr: `unexpected gh call: ${cmd}` };
 };
+
+// The real PATH can't be relied on either (#48): CI runners have no `claude`
+// on PATH, so any makeGreenProject()-based test needs a genuinely green
+// static block regardless of what is installed on the host running the test.
+const alwaysOnPath: BinaryExists = () => true;
 
 const SENTINEL_NAME = "doctor-selftest-sentinel.txt";
 const SENTINEL_TOKEN = "founder-helpers-selftest-ok";
@@ -254,7 +260,7 @@ describe("doctorCommand", () => {
     process.chdir(repo);
     try {
       await withEnv({ FH_STATE_DIR: stateBase }, async () => {
-        const code = await doctorCommand([], { gh: greenGh });
+        const code = await doctorCommand([], { gh: greenGh, binaryExists: alwaysOnPath });
         expect(code).toBe(0);
         const printed = log.mock.calls.flat().join("\n");
         expect(printed).toContain("All good.");
@@ -276,7 +282,7 @@ describe("doctorCommand", () => {
     process.chdir(repo);
     try {
       await withEnv({ FH_STATE_DIR: stateBase }, async () => {
-        const code = await doctorCommand(["--deep"], { gh: greenGh });
+        const code = await doctorCommand(["--deep"], { gh: greenGh, binaryExists: alwaysOnPath });
         expect(code).toBe(1);
         const printed = log.mock.calls.flat().join("\n");
         expect(printed).toContain("check(s) failed");
@@ -307,7 +313,7 @@ describe("doctorCommand", () => {
       await withEnv(
         { FH_STATE_DIR: stateBase, FH_RUNNER: "mock", FH_MOCK_SCENARIOS: scenariosFile },
         async () => {
-          const code = await doctorCommand(["--deep"], { gh: greenGh });
+          const code = await doctorCommand(["--deep"], { gh: greenGh, binaryExists: alwaysOnPath });
           const printed = log.mock.calls.flat().join("\n");
           expect(printed).toContain("Starting a live");
           expect(code).toBe(0);
@@ -332,7 +338,7 @@ describe("doctorCommand", () => {
       await withEnv(
         { FH_STATE_DIR: stateBase, FH_RUNNER: "mock", FH_MOCK_SCENARIOS: scenariosFile },
         async () => {
-          const code = await doctorCommand(["--deep"], { gh: greenGh });
+          const code = await doctorCommand(["--deep"], { gh: greenGh, binaryExists: alwaysOnPath });
           expect(code).toBe(1);
           const printed = log.mock.calls.flat().join("\n");
           expect(printed).toContain("Deep check failed.");
@@ -360,7 +366,7 @@ describe("runChecks: gh access and labels (#47)", () => {
         ? { ok: false, stdout: "", stderr: "" }
         : { ok: false, stdout: "", stderr: "unreachable" };
 
-    const names = byName(runChecks(repo, { stateBase, gh }));
+    const names = byName(runChecks(repo, { stateBase, gh, binaryExists: alwaysOnPath }));
 
     expect(names["gh auth"]?.level).toBe("fail");
     expect(names["gh auth"]?.detail).toContain("gh auth login");
@@ -375,7 +381,7 @@ describe("runChecks: gh access and labels (#47)", () => {
         ? { ok: true, stdout: "", stderr: "" }
         : { ok: false, stdout: "", stderr: "" };
 
-    const names = byName(runChecks(repo, { stateBase, gh }));
+    const names = byName(runChecks(repo, { stateBase, gh, binaryExists: alwaysOnPath }));
 
     expect(names["gh auth"]?.level).toBe("ok");
     expect(names["gh repo access"]?.level).toBe("fail");
@@ -386,7 +392,7 @@ describe("runChecks: gh access and labels (#47)", () => {
   it("labels: passes when all four configured labels are present", () => {
     const { repo, stateBase } = makeGreenProject();
 
-    const names = byName(runChecks(repo, { stateBase, gh: greenGh }));
+    const names = byName(runChecks(repo, { stateBase, gh: greenGh, binaryExists: alwaysOnPath }));
 
     expect(names["labels"]?.level).toBe("ok");
   });
@@ -405,13 +411,34 @@ describe("runChecks: gh access and labels (#47)", () => {
       };
     };
 
-    const names = byName(runChecks(repo, { stateBase, gh }));
+    const names = byName(runChecks(repo, { stateBase, gh, binaryExists: alwaysOnPath }));
 
     expect(names["labels"]?.level).toBe("fail");
     expect(names["labels"]?.detail).toContain("status:in-progress");
     expect(names["labels"]?.detail).toContain("status:blocked");
     expect(names["labels"]?.detail).toContain('gh label create "status:in-progress"');
     expect(names["labels"]?.detail).not.toContain("status:approved"); // present label not listed as missing
+  });
+});
+
+describe("runChecks: CLI binaries (#48)", () => {
+  it('"<engine> CLI" fails when the engine binary is absent from PATH — the actual CI failure: a GitHub runner never has Claude Code installed', () => {
+    const { repo, stateBase } = makeGreenProject();
+
+    const names = byName(runChecks(repo, { stateBase, gh: greenGh, binaryExists: () => false }));
+
+    expect(names["claude CLI"]?.level).toBe("fail");
+    expect(names["claude CLI"]?.detail).toContain("not found on PATH");
+    expect(names["gh CLI"]?.level).toBe("warn");
+  });
+
+  it('"<engine> CLI" and "gh CLI" both pass when their binaries are present', () => {
+    const { repo, stateBase } = makeGreenProject();
+
+    const names = byName(runChecks(repo, { stateBase, gh: greenGh, binaryExists: alwaysOnPath }));
+
+    expect(names["claude CLI"]?.level).toBe("ok");
+    expect(names["gh CLI"]?.level).toBe("ok");
   });
 });
 
@@ -442,7 +469,7 @@ describe("runChecks: repo topology (#47)", () => {
   it("integration branch: ok once the configured branch is actually on origin", () => {
     const { repo, stateBase } = makeGreenProject();
 
-    const names = byName(runChecks(repo, { stateBase, gh: greenGh }));
+    const names = byName(runChecks(repo, { stateBase, gh: greenGh, binaryExists: alwaysOnPath }));
 
     expect(names["integration branch"]?.level).toBe("ok");
   });

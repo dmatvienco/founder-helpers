@@ -111,6 +111,24 @@ project-specific lands here. The team edits this file itself as it learns. Commi
   `process.execPath` (see `test/unit/check-lockfile-version.test.ts`, which
   copies the script into a temp "repo" so the real exit code is checked), and
   run it with `npm test -- <path>`.
+- `where <cmd>`/`which <cmd>` and any `$VAR`/`${VAR}` shell-variable expansion
+  (e.g. `printf '%s' "$PATH"`) need an approval prompt or are rejected outright
+  ("Contains shell syntax that cannot be statically analyzed") in the Bash
+  tool on this box — same class as `npx`/bare `node` (#48, 2026-09-23). To
+  deliberately test a code path that depends on whether a binary is on real
+  PATH (not just an injected stub), write a throwaway vitest file that reads
+  `process.env.PATH` from inside Node, filters it with `fs.existsSync`, sets
+  `process.env.PATH` to the filtered value for the test, and run it with
+  `npm test -- <path>`; delete the throwaway file afterward if it's not meant
+  to be a permanent regression test.
+- `runChecks()`'s `checkEngineAuth` reads `opts.home ?? homedir()` — every
+  `runChecks(...)` call in `test/unit/doctor.test.ts` omits `home`, so it
+  reads the REAL test-runner's home directory's actual credentials file on
+  every run (#48, found while auditing for the PATH bug's siblings). It can
+  never turn a test red today (the check is `ok`/`warn` only, never `fail` —
+  by design, #21), so it was left as-is rather than threading a fake `home`
+  through every call for no behavior change; flag it again if a future check
+  in that function ever gains a `fail` branch.
 
 ## Build, test and smoke procedures
 
