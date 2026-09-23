@@ -15,7 +15,7 @@ export const ProjectConfigSchema = z.object({
     .prefault({}),
   runner: z
     .object({
-      kind: z.enum(["claude", "mock"]).default("claude"),
+      kind: z.enum(["claude", "mock", "codex"]).default("claude"),
       model: z.string().default("claude-sonnet-5"),
       permissionMode: z.enum(["allowlist", "acceptEdits", "bypass"]).default("allowlist"),
     })
