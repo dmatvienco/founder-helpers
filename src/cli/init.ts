@@ -3,6 +3,7 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import path from "node:path";
+import { doctorCommand } from "./doctor.js";
 import { ENGINES, pickEngine, type EngineKind } from "./engine.js";
 import { pickModel } from "./model-picker.js";
 import { pairTelegram, type PairIo, type PairResult } from "./pair.js";
@@ -207,6 +208,30 @@ export async function chooseEngineAndModel(
   return { engine, model };
 }
 
+/**
+ * Offer to run `fh doctor --deep` right now (default yes) — same
+ * testable-without-TTY principle as chooseEngineAndModel/pairTelegram.
+ * `runDoctorDeep` is injected rather than calling doctorCommand directly so a
+ * test can stub it out instead of ever spawning a real live engine session.
+ */
+export async function offerSelfTest(
+  io: PairIo,
+  runDoctorDeep: () => Promise<number>,
+): Promise<void> {
+  const answer = (
+    await io.ask(
+      "  2. Run the self-test now? Starts a live session and uses your account's usage quota. [Y/n] ",
+    )
+  )
+    .trim()
+    .toLowerCase();
+  if (answer === "" || answer.startsWith("y")) {
+    await runDoctorDeep();
+  } else {
+    io.say('  Skipped. Run "fh doctor --deep" any time.');
+  }
+}
+
 export async function initCommand(args: string[]): Promise<number> {
   const { values } = parseArgs({
     args,
@@ -290,6 +315,17 @@ export async function initCommand(args: string[]): Promise<number> {
   console.log("");
   console.log("Next steps:");
   console.log("  1. Fill in .founder-helpers/profile.md — the team reads it every run");
-  console.log("  2. fh doctor");
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    console.log("  2. fh doctor");
+  } else {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      await offerSelfTest({ ask: (q) => rl.question(q), say: (l) => console.log(l) }, () =>
+        doctorCommand(["--deep"]),
+      );
+    } finally {
+      rl.close();
+    }
+  }
   return 0;
 }
