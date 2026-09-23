@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.13.0
+
+- `fh doctor --deep` runs the configured engine once, for real, instead of
+  only checking that its binary exists. It builds the run the same way a role
+  run does — same permission mapping, same settings file, same extra
+  directories — then asserts three things: the run finished ok, the engine
+  could write a file into the state dir (outside the repo root), and its
+  output parsed back. On failure it prints the exact argv, the status and the
+  tail of `output.log`, so a rejected flag is identifiable without opening
+  the code. A failing static check short-circuits before the live run. The
+  deep run spends a live model session, so it is opt-in by flag and never
+  part of plain `fh doctor` (#46).
+- `fh doctor` gained the access checks that used to fail later, mid-run:
+  `gh` is logged in, `gh` can read this repository, the four labels from
+  `config.labels` exist, `origin` exists and carries the integration branch,
+  the Telegram token is valid and a chat is paired. `fh doctor --send` also
+  delivers a test message — behind its own flag, never automatically (#47).
+- `fh init` offers to run the self-test right after a fresh install, so a
+  broken setup surfaces at setup time rather than on the first real run
+  (#47).
+
 ## 0.12.0
 
 - A team can now run on the OpenAI Codex CLI instead of Claude Code:
