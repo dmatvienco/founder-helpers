@@ -191,13 +191,19 @@ export interface EngineModelChoice {
  * Ask engine then model — separated from initCommand so it's testable with
  * injected IO, same principle as pairTelegram being callable without the TTY
  * gate that wraps it in initCommand.
+ *
+ * `current.model` is only a valid Enter-default while the engine stays the
+ * same: it was stored for `current.kind`, so switching engines must offer
+ * the NEW engine's own default instead (#44) — otherwise Enter at the model
+ * prompt silently writes the old engine's model id under the new kind.
  */
 export async function chooseEngineAndModel(
   io: PairIo,
   current: { kind: EngineKind; model: string },
 ): Promise<EngineModelChoice> {
   const engine = await pickEngine(io, current.kind);
-  const model = await pickModel(io, current.model, engine);
+  const baseModel = engine === current.kind ? current.model : ENGINES[engine].defaultModel;
+  const model = await pickModel(io, baseModel, engine);
   return { engine, model };
 }
 

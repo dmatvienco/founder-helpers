@@ -25,6 +25,13 @@ export interface EngineInfo {
   /** Human-readable login instruction, ready to drop into a detail string. */
   loginCommand: string;
   credentialsPath(home: string): string;
+  /**
+   * Model offered as the `pickModel` baseline right after switching INTO this
+   * engine (see `init.ts`'s `chooseEngineAndModel`) — must be this engine's
+   * own model, never the previous engine's stored one (#44). Matches the
+   * "balanced, current default" entry in model-picker.ts's `KNOWN_MODELS`.
+   */
+  defaultModel: string;
 }
 
 export const ENGINES: Record<EngineKind, EngineInfo> = {
@@ -35,6 +42,7 @@ export const ENGINES: Record<EngineKind, EngineInfo> = {
     installUrl: "https://claude.com/claude-code",
     loginCommand: '"claude /login" (or "claude login")',
     credentialsPath: (home) => path.join(home, ".claude", ".credentials.json"),
+    defaultModel: "sonnet",
   },
   codex: {
     kind: "codex",
@@ -43,6 +51,7 @@ export const ENGINES: Record<EngineKind, EngineInfo> = {
     installUrl: "https://github.com/openai/codex",
     loginCommand: '"codex login"',
     credentialsPath: (home) => path.join(home, ".codex", "auth.json"),
+    defaultModel: "gpt-5-codex",
   },
 };
 
