@@ -272,7 +272,7 @@ describe("doctorCommand", () => {
     }
   });
 
-  it("--deep short-circuits on a static failure, without ever starting the live run", async () => {
+  it("--deep short-circuits on a prerequisite failure, without ever starting the live run, and prints the skip line (#49)", async () => {
     const { repo, stateBase } = makeGreenProject();
     writeFileSync(path.join(repo, ".founder-helpers", "config.json"), "{not valid json", "utf8");
     const sp = statePaths(repo, { stateBase });
@@ -287,12 +287,48 @@ describe("doctorCommand", () => {
         const printed = log.mock.calls.flat().join("\n");
         expect(printed).toContain("check(s) failed");
         expect(printed).not.toContain("Starting a live");
+        expect(printed).toContain("live check SKIPPED");
+        expect(printed).toContain('prerequisite "config" failed');
+        expect(printed).toContain("nothing about the engine was verified");
       });
       // The live check creates its runDir *before* invoking the runner — proof it never ran at all.
       const selftestRuns = existsSync(sp.runsDir)
         ? readdirSync(sp.runsDir).filter((r) => r.includes("_selftest_"))
         : [];
       expect(selftestRuns).toEqual([]);
+    } finally {
+      process.chdir(cwd);
+      log.mockRestore();
+    }
+  });
+
+  it("--deep still reaches the live run when only a non-prerequisite (GitHub-workflow) check failed, and the process exits 1 (#49)", async () => {
+    // makeProject(), not makeGreenProject(): no "origin" remote configured,
+    // so the only failure is "origin remote" — a GitHub-workflow check, not
+    // an engine prerequisite (issue #49's own scratch-project example).
+    const { repo, stateBase } = makeProject();
+    const sp = statePaths(repo, { stateBase });
+    const sentinelPath = path.join(sp.root, SENTINEL_NAME);
+    const scenariosFile = path.join(stateBase, "scenarios.json");
+    writeFileSync(scenariosFile, JSON.stringify([greenScenario(sentinelPath)]), "utf8");
+
+    const cwd = process.cwd();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    process.chdir(repo);
+    try {
+      await withEnv(
+        { FH_STATE_DIR: stateBase, FH_RUNNER: "mock", FH_MOCK_SCENARIOS: scenariosFile },
+        async () => {
+          const code = await doctorCommand(["--deep"], { gh: greenGh, binaryExists: alwaysOnPath });
+          const printed = log.mock.calls.flat().join("\n");
+          expect(printed).toContain("origin remote");
+          expect(printed).toContain("check(s) failed");
+          expect(printed).not.toContain("live check SKIPPED");
+          expect(printed).toContain("Starting a live");
+          expect(printed).toContain("live Claude Code session ok");
+          expect(code).toBe(1); // exit-code contract: any fail, prerequisite or not, still means 1
+        },
+      );
     } finally {
       process.chdir(cwd);
       log.mockRestore();
