@@ -162,7 +162,7 @@ describe("runRole with the CodexRunner (fake codex binaries, #42)", () => {
     expect(output).toContain("settingsFile allowlist does not apply to this engine");
   });
 
-  it("runner.kind: \"codex\" in config selects CodexRunner end to end", async () => {
+  it('runner.kind: "codex" in config selects CodexRunner end to end', async () => {
     const { repo, stateBase } = makeProject();
     const configFile = path.join(repo, ".founder-helpers", "config.json");
     const config = JSON.parse(readFileSync(configFile, "utf8"));

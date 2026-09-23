@@ -43,6 +43,8 @@ export interface RunResult extends LimitReset {
   durationMs: number;
   /** The claude session id this run used (new or resumed), for the caller to persist. */
   sessionId?: string;
+  /** The exact argv this run actually spawned with — diagnostic only (e.g. `fh doctor --deep`'s failure output). */
+  argv?: string[];
 }
 
 export interface Runner {

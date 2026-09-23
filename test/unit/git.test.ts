@@ -3,7 +3,13 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { defaultBranch, isGitRepo, isTreeClean } from "../../src/util/git.js";
+import {
+  branchExistsOnOrigin,
+  defaultBranch,
+  hasOriginRemote,
+  isGitRepo,
+  isTreeClean,
+} from "../../src/util/git.js";
 
 function makeRepo(): string {
   const dir = mkdtempSync(path.join(tmpdir(), "fh-git-"));
@@ -35,5 +41,25 @@ describe("git helpers", () => {
     expect(isTreeClean(repo)).toBe(true);
     writeFileSync(path.join(repo, "a.txt"), "two\n", "utf8");
     expect(isTreeClean(repo)).toBe(false);
+  });
+
+  it("hasOriginRemote: false with no remote, true once one is added", () => {
+    const repo = makeRepo();
+    expect(hasOriginRemote(repo)).toBe(false);
+    const bare = mkdtempSync(path.join(tmpdir(), "fh-origin-"));
+    execFileSync("git", ["init", "--bare", "-q", bare], { stdio: "ignore" });
+    execFileSync("git", ["-C", repo, "remote", "add", "origin", bare], { stdio: "ignore" });
+    expect(hasOriginRemote(repo)).toBe(true);
+  });
+
+  it("branchExistsOnOrigin: false until the branch is actually pushed", () => {
+    const repo = makeRepo();
+    const bare = mkdtempSync(path.join(tmpdir(), "fh-origin-"));
+    execFileSync("git", ["init", "--bare", "-q", bare], { stdio: "ignore" });
+    execFileSync("git", ["-C", repo, "remote", "add", "origin", bare], { stdio: "ignore" });
+    execFileSync("git", ["-C", repo, "commit", "--allow-empty", "-m", "init"], { stdio: "ignore" });
+    expect(branchExistsOnOrigin(repo, "main")).toBe(false);
+    execFileSync("git", ["-C", repo, "push", "origin", "main"], { stdio: "ignore" });
+    expect(branchExistsOnOrigin(repo, "main")).toBe(true);
   });
 });

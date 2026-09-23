@@ -10,14 +10,25 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { chooseEngineAndModel, runInit, persistPairing } from "../../src/cli/init.js";
+import {
+  chooseEngineAndModel,
+  offerSelfTest,
+  runInit,
+  persistPairing,
+} from "../../src/cli/init.js";
 import { ENGINES } from "../../src/cli/engine.js";
 import { pairTelegram } from "../../src/cli/pair.js";
 import { checkEngineAuth, runChecks } from "../../src/cli/doctor.js";
 import { readJson } from "../../src/state/atomic.js";
 import { statePaths } from "../../src/state/paths.js";
 import { ProjectConfigSchema, TransportStateSchema } from "../../src/state/schema.js";
+import type { GhExec } from "../../src/util/gh.js";
 import { startMockTelegram } from "../helpers/mock-telegram.js";
+
+// gh auth/network can't run for real in tests (#47) — every "fh doctor (partial)"
+// test below is exercising engine/model checks unrelated to gh, so a fake that
+// always reports "not logged in" keeps them deterministic and network-free.
+const noGh: GhExec = () => ({ ok: false, stdout: "", stderr: "not available in tests" });
 
 function io(answers: string[]): {
   ask: (q: string) => Promise<string>;
@@ -174,6 +185,40 @@ describe("fh init: engine + model choice", () => {
   });
 });
 
+describe("fh init: self-test offer (#47)", () => {
+  it("Enter (default yes) runs the self-test", async () => {
+    const picker = io([""]);
+    let ran = false;
+    await offerSelfTest(picker, async () => {
+      ran = true;
+      return 0;
+    });
+    expect(ran).toBe(true);
+    expect(picker.said).toEqual([]);
+  });
+
+  it("an explicit yes runs it too", async () => {
+    const picker = io(["y"]);
+    let ran = false;
+    await offerSelfTest(picker, async () => {
+      ran = true;
+      return 0;
+    });
+    expect(ran).toBe(true);
+  });
+
+  it("declining never spawns a real live session", async () => {
+    const picker = io(["n"]);
+    let ran = false;
+    await offerSelfTest(picker, async () => {
+      ran = true;
+      return 0;
+    });
+    expect(ran).toBe(false);
+    expect(picker.said.join("\n")).toContain("fh doctor --deep");
+  });
+});
+
 function setRunnerKind(repo: string, kind: "claude" | "codex"): void {
   const configFile = path.join(repo, ".founder-helpers", "config.json");
   const config = ProjectConfigSchema.parse(JSON.parse(readFileSync(configFile, "utf8")));
@@ -192,7 +237,7 @@ describe("fh doctor (partial)", () => {
   it("reports node and git ok on an initialized (claude, the default) repo", () => {
     const { repo, stateBase } = makeRepo();
     runInit(repo, { stateBase });
-    const checks = runChecks(repo, { stateBase });
+    const checks = runChecks(repo, { stateBase, gh: noGh });
     const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
     expect(byName["node"]?.level).toBe("ok");
     expect(byName["git repo"]?.level).toBe("ok");
@@ -210,7 +255,10 @@ describe("fh doctor (partial)", () => {
   it("falls back to claude when config.json is missing (the pre-init case)", () => {
     const repo = mkdtempSync(path.join(tmpdir(), "fh-nocfg-"));
     execFileSync("git", ["-c", "init.defaultBranch=main", "init", repo], { stdio: "ignore" });
-    const checks = runChecks(repo, { stateBase: mkdtempSync(path.join(tmpdir(), "fh-sb-")) });
+    const checks = runChecks(repo, {
+      stateBase: mkdtempSync(path.join(tmpdir(), "fh-sb-")),
+      gh: noGh,
+    });
     const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
     expect(byName["claude CLI"]).toBeDefined();
     expect(byName["codex CLI"]).toBeUndefined();
@@ -220,7 +268,7 @@ describe("fh doctor (partial)", () => {
     const { repo, stateBase } = makeRepo();
     runInit(repo, { stateBase });
     setRunnerKind(repo, "codex");
-    const checks = runChecks(repo, { stateBase });
+    const checks = runChecks(repo, { stateBase, gh: noGh });
     const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
     expect(byName["codex CLI"]).toBeDefined();
     expect(byName["codex auth"]).toBeDefined();
@@ -288,7 +336,7 @@ describe("fh doctor (partial)", () => {
     const { repo, stateBase } = makeRepo();
     runInit(repo, { stateBase });
     setRunnerKind(repo, "codex"); // model stays "claude-sonnet-5", the fresh-init default
-    const checks = runChecks(repo, { stateBase });
+    const checks = runChecks(repo, { stateBase, gh: noGh });
     const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
     expect(byName["runner.model"]?.level).toBe("warn");
     expect(byName["runner.model"]?.detail).toContain("Claude Code");
@@ -298,7 +346,7 @@ describe("fh doctor (partial)", () => {
     const { repo, stateBase } = makeRepo();
     runInit(repo, { stateBase });
     setRunnerModel(repo, "gpt-5-codex"); // runner.kind stays "claude", the fresh-init default
-    const checks = runChecks(repo, { stateBase });
+    const checks = runChecks(repo, { stateBase, gh: noGh });
     const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
     expect(byName["runner.model"]?.level).toBe("warn");
     expect(byName["runner.model"]?.detail).toContain("Codex");
@@ -307,7 +355,7 @@ describe("fh doctor (partial)", () => {
   it("runner.model: silent when engine and model actually match", () => {
     const { repo, stateBase } = makeRepo();
     runInit(repo, { stateBase }); // fresh config: claude + claude-sonnet-5
-    const checks = runChecks(repo, { stateBase });
+    const checks = runChecks(repo, { stateBase, gh: noGh });
     const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
     expect(byName["runner.model"]).toBeUndefined();
   });
@@ -317,7 +365,7 @@ describe("fh doctor (partial)", () => {
     runInit(repo, { stateBase });
     setRunnerKind(repo, "codex");
     setRunnerModel(repo, "my-self-hosted-model");
-    const checks = runChecks(repo, { stateBase });
+    const checks = runChecks(repo, { stateBase, gh: noGh });
     const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
     expect(byName["runner.model"]).toBeUndefined();
   });

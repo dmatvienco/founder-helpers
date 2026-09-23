@@ -78,9 +78,7 @@ describe("buildCodexArgs", () => {
   });
 
   it("omits the writable-roots flag under bypass even when addDirs is set — no sandbox to widen", () => {
-    const args = buildCodexArgs(
-      baseSpec({ permissionMode: "bypass", addDirs: ["/tmp/state"] }),
-    );
+    const args = buildCodexArgs(baseSpec({ permissionMode: "bypass", addDirs: ["/tmp/state"] }));
     expect(args).not.toContain("--config");
     expect(args.join(" ")).not.toContain("writable_roots");
   });
