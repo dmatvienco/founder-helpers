@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.13.1
+
+- `fh doctor --deep` no longer skips its live run because of checks that say
+  nothing about the engine. The gate is now the engine's own prerequisites
+  (node, the engine binary and its credentials, config, the permissions
+  ledger, the state dir); a failing GitHub-workflow check — `origin`, `gh`
+  auth, repository access, the status labels, the integration branch — no
+  longer blocks it, so `--deep` is reachable in a project that has no GitHub
+  side at all. Any failing check, prerequisite or not, still exits 1 (#49).
+- A skipped live run now says so: `live check SKIPPED — prerequisite "<name>"
+  failed; nothing about the engine was verified`. Previously the section was
+  simply absent, which reads like a pass (#49).
+
 ## 0.13.0
 
 - `fh doctor --deep` runs the configured engine once, for real, instead of
