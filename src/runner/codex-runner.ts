@@ -178,6 +178,7 @@ export class CodexRunner implements Runner {
       exitCode,
       outputLog,
       durationMs: Date.now() - started,
+      argv: args,
       ...(sessionId ? { sessionId } : {}),
       ...(status === "limit" && limit ? limit : {}),
     };

@@ -9,6 +9,37 @@ import { describeToolUse, parseStreamJsonLine, splitLines } from "./stream-json.
 const TAIL_LIMIT = 64 * 1024; // keep the last 64KB of extracted text for status detection
 
 /**
+ * Builds the `claude -p` argument list. Isolated here, alone, so a caller that
+ * needs to know exactly what would be spawned (`fh doctor --deep`'s failure
+ * output) can reuse the real logic instead of re-deriving it — same rule as
+ * codex-runner.ts's buildCodexArgs.
+ */
+export function buildClaudeArgs(spec: RunSpec): string[] {
+  const args: string[] = [
+    ...(spec.binArgs ?? []),
+    "-p",
+    spec.spawnPrompt,
+    "--model",
+    spec.model,
+    "--output-format",
+    "stream-json",
+    "--verbose", // the CLI requires this when --print is combined with stream-json output
+  ];
+  if (spec.resumeSessionId) args.push("--resume", spec.resumeSessionId);
+  if (spec.permissionMode === "bypass") {
+    args.push("--dangerously-skip-permissions");
+  } else {
+    // Both non-bypass modes run acceptEdits + the generated allowlist:
+    // file edits auto-accepted (a headless dev must be able to write code),
+    // Bash gated by the settings rules. Denials fail soft in -p mode.
+    args.push("--permission-mode", "acceptEdits");
+    if (spec.settingsFile) args.push("--settings", spec.settingsFile);
+  }
+  for (const dir of spec.addDirs) args.push("--add-dir", dir);
+  return args;
+}
+
+/**
  * Runs one headless claude CLI session with a hard timeout and a guaranteed
  * process-tree kill. Never blocks on anything external — a headless run has
  * nobody to deliver callbacks to (predecessor issue #64) — except the child
@@ -39,27 +70,7 @@ export class ClaudeRunner implements Runner {
     const outputLog = path.join(spec.runDir, "output.log");
     const stream = createWriteStream(outputLog, { flags: "a" });
 
-    const args: string[] = [
-      ...(spec.binArgs ?? []),
-      "-p",
-      spec.spawnPrompt,
-      "--model",
-      spec.model,
-      "--output-format",
-      "stream-json",
-      "--verbose", // the CLI requires this when --print is combined with stream-json output
-    ];
-    if (spec.resumeSessionId) args.push("--resume", spec.resumeSessionId);
-    if (spec.permissionMode === "bypass") {
-      args.push("--dangerously-skip-permissions");
-    } else {
-      // Both non-bypass modes run acceptEdits + the generated allowlist:
-      // file edits auto-accepted (a headless dev must be able to write code),
-      // Bash gated by the settings rules. Denials fail soft in -p mode.
-      args.push("--permission-mode", "acceptEdits");
-      if (spec.settingsFile) args.push("--settings", spec.settingsFile);
-    }
-    for (const dir of spec.addDirs) args.push("--add-dir", dir);
+    const args = buildClaudeArgs(spec);
 
     const started = Date.now();
     const child = spawnTracked(spec.bin ?? "claude", args, { cwd: spec.cwd });
@@ -142,6 +153,7 @@ export class ClaudeRunner implements Runner {
       exitCode,
       outputLog,
       durationMs: Date.now() - started,
+      argv: args,
       ...(sessionId ? { sessionId } : {}),
       ...(status === "limit" && limit ? limit : {}),
     };
