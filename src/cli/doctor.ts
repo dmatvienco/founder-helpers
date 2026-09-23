@@ -18,9 +18,16 @@ import { writeClaudeSettings } from "../permissions/settings.js";
 import type { Runner, RunResult, RunSpec } from "../runner/runner.js";
 import { writeJsonAtomic } from "../state/atomic.js";
 import { projectConfigDir, statePaths, type PathsOptions } from "../state/paths.js";
-import { LedgerSchema, ProjectConfigSchema, RunRecordSchema } from "../state/schema.js";
+import { loadSecrets } from "../state/secrets.js";
+import {
+  LedgerSchema,
+  ProjectConfigSchema,
+  RunRecordSchema,
+  type ProjectConfig,
+} from "../state/schema.js";
+import { execGh, type GhExec } from "../util/gh.js";
 import { commandExists } from "../util/proc.js";
-import { defaultBranch, isGitRepo } from "../util/git.js";
+import { branchExistsOnOrigin, defaultBranch, hasOriginRemote, isGitRepo } from "../util/git.js";
 
 export type CheckLevel = "ok" | "warn" | "fail";
 
@@ -82,18 +89,18 @@ export function checkEngineAuth(engine: EngineKind, opts: PathsOptions = {}): Ch
   return { name, level: "ok", detail: "credentials refreshed recently" };
 }
 
-/** Reads `runner.kind`/`runner.model` from the committed config; `undefined` when config is missing/unreadable — the pre-init case doctor already has to survive (callers fall back to "claude" for the kind, same as before). */
-function readRunnerConfig(projectRoot: string): { kind: EngineKind; model: string } | undefined {
+/** Reads the committed config; `undefined` when missing/unreadable — the pre-init case doctor already has to survive. */
+function readProjectConfig(projectRoot: string): ProjectConfig | undefined {
   try {
     const file = path.join(projectConfigDir(projectRoot), "config.json");
-    const config = ProjectConfigSchema.parse(JSON.parse(readFileSync(file, "utf8")));
-    return {
-      kind: config.runner.kind === "codex" ? "codex" : "claude",
-      model: config.runner.model,
-    };
+    return ProjectConfigSchema.parse(JSON.parse(readFileSync(file, "utf8")));
   } catch {
     return undefined;
   }
+}
+
+function engineKind(config: ProjectConfig): EngineKind {
+  return config.runner.kind === "codex" ? "codex" : "claude";
 }
 
 function otherEngine(kind: EngineKind): EngineKind {
@@ -115,9 +122,78 @@ function looksLikeOtherEngineModel(model: string, kind: EngineKind): boolean {
   return ENGINE_MODEL_HINT[other].test(model) || KNOWN_MODELS[other].some((m) => m.alias === model);
 }
 
+/** gh is logged in at all — checked before anything that needs a token, and the ONLY one of the three gh checks run when gh isn't even on PATH (so that case still gets a `fail`, not silence). */
+function checkGhAuth(gh: GhExec, cwd: string): Check {
+  if (!commandExists("gh")) {
+    return {
+      name: "gh auth",
+      level: "fail",
+      detail: `gh not installed — install it (https://cli.github.com), then run "gh auth login"`,
+    };
+  }
+  const res = gh(["auth", "status"], cwd);
+  return res.ok
+    ? { name: "gh auth", level: "ok", detail: "logged in" }
+    : { name: "gh auth", level: "fail", detail: `not logged in — run "gh auth login"` };
+}
+
+/** Distinct from `checkGhAuth`: a valid login whose token still can't see THIS repo (wrong account/org, no collaborator access). Only meaningful once auth itself is ok. */
+function checkGhRepoAccess(gh: GhExec, cwd: string): Check {
+  const res = gh(["repo", "view", "--json", "name"], cwd);
+  return res.ok
+    ? { name: "gh repo access", level: "ok", detail: "can read this repository" }
+    : {
+        name: "gh repo access",
+        level: "fail",
+        detail:
+          "gh is logged in but can't read this repository — the token likely lacks access; " +
+          `check the account/org, or re-run "gh auth login" with the right account`,
+      };
+}
+
+/** The four labels the queue/merge flow depends on — a missing one breaks bookkeeping silently (the PM labels an issue and nothing happens). Only meaningful once repo access is confirmed. */
+function checkLabels(gh: GhExec, cwd: string, labels: ProjectConfig["labels"]): Check {
+  const res = gh(["label", "list", "--json", "name", "--limit", "100"], cwd);
+  if (!res.ok) {
+    return {
+      name: "labels",
+      level: "fail",
+      detail: `could not list labels: ${res.stderr.split("\n")[0]}`,
+    };
+  }
+  let existing: Set<string>;
+  try {
+    existing = new Set((JSON.parse(res.stdout) as { name: string }[]).map((l) => l.name));
+  } catch {
+    return { name: "labels", level: "fail", detail: "could not parse gh label list output" };
+  }
+  const required = [labels.approved, labels.inProgress, labels.review, labels.blocked];
+  const missing = required.filter((l) => !existing.has(l));
+  if (missing.length === 0) {
+    return {
+      name: "labels",
+      level: "ok",
+      detail: "approved/inProgress/review/blocked all present",
+    };
+  }
+  return {
+    name: "labels",
+    level: "fail",
+    detail:
+      `missing: ${missing.join(", ")} — create with: ` +
+      missing.map((l) => `gh label create "${l}"`).join("; "),
+  };
+}
+
+export interface RunChecksOptions extends PathsOptions {
+  /** Test hook: injected gh CLI exec — auth/network can't run for real in tests. */
+  gh?: GhExec;
+}
+
 /** All environment/config checks that exist so far (grows with each milestone). */
-export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[] {
+export function runChecks(projectRoot: string, opts: RunChecksOptions = {}): Check[] {
   const checks: Check[] = [];
+  const gh = opts.gh ?? execGh;
 
   const [major] = process.versions.node.split(".").map(Number);
   checks.push({
@@ -135,8 +211,33 @@ export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[]
       : `${projectRoot} is not a git repository`,
   });
 
-  const runnerConfig = readRunnerConfig(projectRoot);
-  const engine = runnerConfig?.kind ?? "claude";
+  const projectConfig = readProjectConfig(projectRoot);
+
+  let hasOrigin = false;
+  if (inRepo) {
+    hasOrigin = hasOriginRemote(projectRoot);
+    checks.push({
+      name: "origin remote",
+      level: hasOrigin ? "ok" : "fail",
+      detail: hasOrigin
+        ? "present"
+        : `no "origin" remote — add one with "git remote add origin <url>"`,
+    });
+
+    if (hasOrigin && projectConfig) {
+      const branch = projectConfig.integrationBranch;
+      const onOrigin = branchExistsOnOrigin(projectRoot, branch);
+      checks.push({
+        name: "integration branch",
+        level: onOrigin ? "ok" : "fail",
+        detail: onOrigin
+          ? `"${branch}" exists on origin`
+          : `"${branch}" (config.integrationBranch) not found on origin — every merge target is wrong until this exists`,
+      });
+    }
+  }
+
+  const engine = projectConfig ? engineKind(projectConfig) : "claude";
   const engineInfo = ENGINES[engine];
   checks.push({
     name: `${engine} CLI`,
@@ -154,20 +255,30 @@ export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[]
       : "not found — the team manages work through GitHub issues; install gh and run gh auth login",
   });
 
+  const ghAuth = checkGhAuth(gh, projectRoot);
+  checks.push(ghAuth);
+  if (ghAuth.level === "ok") {
+    const ghRepoAccess = checkGhRepoAccess(gh, projectRoot);
+    checks.push(ghRepoAccess);
+    if (ghRepoAccess.level === "ok" && projectConfig) {
+      checks.push(checkLabels(gh, projectRoot, projectConfig.labels));
+    }
+  }
+
   checks.push(checkEngineAuth(engine, opts));
 
   const configDir = projectConfigDir(projectRoot);
   checks.push(jsonFileCheck("config", path.join(configDir, "config.json"), ProjectConfigSchema));
 
-  if (runnerConfig && looksLikeOtherEngineModel(runnerConfig.model, runnerConfig.kind)) {
-    const other = otherEngine(runnerConfig.kind);
+  if (projectConfig && looksLikeOtherEngineModel(projectConfig.runner.model, engine)) {
+    const other = otherEngine(engine);
     checks.push({
       name: "runner.model",
       level: "warn",
       detail:
-        `"${runnerConfig.model}" looks like a ${ENGINES[other].label} model, but runner.kind ` +
-        `is "${runnerConfig.kind}" — likely a stale value from switching engines. Try ` +
-        `"${ENGINES[runnerConfig.kind].defaultModel}" or re-run "fh init".`,
+        `"${projectConfig.runner.model}" looks like a ${ENGINES[other].label} model, but runner.kind ` +
+        `is "${engine}" — likely a stale value from switching engines. Try ` +
+        `"${ENGINES[engine].defaultModel}" or re-run "fh init".`,
     });
   }
 
@@ -204,6 +315,99 @@ export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[]
       level: "warn",
       detail: `${Math.round(logBytes / 1e6)} MB in ${sp.logsDir}`,
     });
+  }
+
+  return checks;
+}
+
+interface TgMeResponse {
+  ok: boolean;
+  description?: string;
+  result?: { username?: string };
+}
+
+export interface TelegramCheckOptions extends PathsOptions {
+  apiBase?: string;
+  /** `fh doctor --send`: actually deliver a test message. Never on by default — sending is outward communication. */
+  send?: boolean;
+}
+
+/**
+ * Telegram is the reporting channel, not the work itself: a broken pairing
+ * stops the founder hearing from the team, but never stops the team
+ * working (unlike gh/labels above) — so every check here is `warn`, never
+ * `fail`.
+ */
+export async function runTelegramChecks(
+  projectRoot: string,
+  opts: TelegramCheckOptions = {},
+): Promise<Check[]> {
+  const checks: Check[] = [];
+  const sp = statePaths(projectRoot, opts);
+  const telegram = loadSecrets(sp).telegram;
+  if (!telegram) {
+    checks.push({
+      name: "telegram pairing",
+      level: "warn",
+      detail: `not paired — run "fh init" in a terminal to pair a bot`,
+    });
+    return checks;
+  }
+  checks.push({ name: "telegram pairing", level: "ok", detail: `chat ${telegram.chatId}` });
+
+  const apiBase = opts.apiBase ?? "https://api.telegram.org";
+  try {
+    const res = await fetch(`${apiBase}/bot${telegram.botToken}/getMe`);
+    const data = (await res.json()) as TgMeResponse;
+    if (!data.ok || !data.result) {
+      checks.push({
+        name: "telegram token",
+        level: "warn",
+        detail: `token rejected (${data.description ?? res.status}) — re-pair with "fh init"`,
+      });
+      return checks;
+    }
+    checks.push({
+      name: "telegram token",
+      level: "ok",
+      detail: `valid — bot @${data.result.username ?? "?"}`,
+    });
+  } catch (err) {
+    checks.push({
+      name: "telegram token",
+      level: "warn",
+      detail: `could not reach Telegram (${err instanceof Error ? err.message : String(err)})`,
+    });
+    return checks;
+  }
+
+  if (opts.send) {
+    try {
+      const res = await fetch(`${apiBase}/bot${telegram.botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "content-type": "application/json; charset=utf-8" },
+        body: JSON.stringify({
+          chat_id: telegram.chatId,
+          text: "✅ founder-helpers doctor: test message — if you see this, delivery works.",
+        }),
+      });
+      const data = (await res.json()) as { ok: boolean; description?: string };
+      checks.push(
+        data.ok
+          ? { name: "telegram send", level: "ok", detail: "test message delivered" }
+          : {
+              name: "telegram send",
+              level: "warn",
+              detail: `delivery failed (${data.description ?? res.status})`,
+            },
+      );
+    } catch (err) {
+      checks.push({
+        name: "telegram send",
+        level: "warn",
+        detail: `delivery failed (${err instanceof Error ? err.message : String(err)})`,
+      });
+    }
   }
 
   return checks;
@@ -409,14 +613,29 @@ export async function runDeepCheck(
   }
 }
 
-export async function doctorCommand(args: string[]): Promise<number> {
+export interface DoctorCommandOptions {
+  /** Test hook: injected gh CLI exec, threaded down to runChecks — auth/network can't run for real in tests. */
+  gh?: GhExec;
+}
+
+export async function doctorCommand(
+  args: string[],
+  opts: DoctorCommandOptions = {},
+): Promise<number> {
   const { values } = parseArgs({
     args,
-    options: { deep: { type: "boolean", default: false } },
+    options: {
+      deep: { type: "boolean", default: false },
+      send: { type: "boolean", default: false },
+    },
     allowPositionals: true,
     strict: false,
   });
-  const checks = runChecks(process.cwd());
+  const cwd = process.cwd();
+  const checks = [
+    ...runChecks(cwd, { gh: opts.gh }),
+    ...(await runTelegramChecks(cwd, { send: Boolean(values.send) })),
+  ];
   const icon: Record<CheckLevel, string> = { ok: "✓", warn: "!", fail: "✗" };
   for (const c of checks) {
     console.log(`${icon[c.level]} ${c.name.padEnd(18)} ${c.detail}`);
@@ -433,8 +652,8 @@ export async function doctorCommand(args: string[]): Promise<number> {
     return 0;
   }
 
-  const runnerConfig = readRunnerConfig(process.cwd());
-  const engine = runnerConfig?.kind ?? "claude";
+  const projectConfig = readProjectConfig(cwd);
+  const engine = projectConfig ? engineKind(projectConfig) : "claude";
   console.log("");
   console.log(
     `Starting a live ${ENGINES[engine].label} session to verify the whole path end to end — ` +
