@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { chooseEngineAndModel, runInit, persistPairing } from "../../src/cli/init.js";
+import { ENGINES } from "../../src/cli/engine.js";
 import { pairTelegram } from "../../src/cli/pair.js";
 import { checkEngineAuth, runChecks } from "../../src/cli/doctor.js";
 import { readJson } from "../../src/state/atomic.js";
@@ -139,12 +140,51 @@ describe("fh init: engine + model choice", () => {
     expect(choice.engine).toBe("codex");
     expect(choice.model).toBe("some-future-codex-model");
   });
+
+  it("switching engine and pressing Enter at the model prompt uses the NEW engine's default, not the stale one (#44)", async () => {
+    const picker = io(["2", ""]);
+    const choice = await chooseEngineAndModel(picker, {
+      kind: "claude",
+      model: "claude-sonnet-5",
+    });
+    expect(choice.engine).toBe("codex");
+    expect(choice.model).toBe(ENGINES.codex.defaultModel);
+    expect(choice.model).not.toBe("claude-sonnet-5");
+  });
+
+  it("mirror: switching Codex to Claude and pressing Enter uses claude's default, not a leftover gpt- model (#44)", async () => {
+    const picker = io(["1", ""]);
+    const choice = await chooseEngineAndModel(picker, {
+      kind: "codex",
+      model: "gpt-5-codex",
+    });
+    expect(choice.engine).toBe("claude");
+    expect(choice.model).toBe(ENGINES.claude.defaultModel);
+    expect(choice.model).not.toMatch(/^gpt-/);
+  });
+
+  it("engine unchanged + Enter still keeps the stored model, guard against over-fixing (#44)", async () => {
+    const picker = io(["", ""]);
+    const choice = await chooseEngineAndModel(picker, {
+      kind: "claude",
+      model: "claude-opus-4-1-special",
+    });
+    expect(choice.engine).toBe("claude");
+    expect(choice.model).toBe("claude-opus-4-1-special");
+  });
 });
 
 function setRunnerKind(repo: string, kind: "claude" | "codex"): void {
   const configFile = path.join(repo, ".founder-helpers", "config.json");
   const config = ProjectConfigSchema.parse(JSON.parse(readFileSync(configFile, "utf8")));
   config.runner.kind = kind;
+  writeFileSync(configFile, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+}
+
+function setRunnerModel(repo: string, model: string): void {
+  const configFile = path.join(repo, ".founder-helpers", "config.json");
+  const config = ProjectConfigSchema.parse(JSON.parse(readFileSync(configFile, "utf8")));
+  config.runner.model = model;
   writeFileSync(configFile, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
@@ -242,5 +282,43 @@ describe("fh doctor (partial)", () => {
     const check = checkEngineAuth("codex", { home });
     expect(check.level).toBe("warn");
     expect(check.detail).toContain("codex login");
+  });
+
+  it("runner.model: warns when runner.kind is codex but the model is still the claude default (#44 stale-model-after-switch)", () => {
+    const { repo, stateBase } = makeRepo();
+    runInit(repo, { stateBase });
+    setRunnerKind(repo, "codex"); // model stays "claude-sonnet-5", the fresh-init default
+    const checks = runChecks(repo, { stateBase });
+    const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
+    expect(byName["runner.model"]?.level).toBe("warn");
+    expect(byName["runner.model"]?.detail).toContain("Claude Code");
+  });
+
+  it("mirror: warns when runner.kind is claude but the model is a codex id", () => {
+    const { repo, stateBase } = makeRepo();
+    runInit(repo, { stateBase });
+    setRunnerModel(repo, "gpt-5-codex"); // runner.kind stays "claude", the fresh-init default
+    const checks = runChecks(repo, { stateBase });
+    const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
+    expect(byName["runner.model"]?.level).toBe("warn");
+    expect(byName["runner.model"]?.detail).toContain("Codex");
+  });
+
+  it("runner.model: silent when engine and model actually match", () => {
+    const { repo, stateBase } = makeRepo();
+    runInit(repo, { stateBase }); // fresh config: claude + claude-sonnet-5
+    const checks = runChecks(repo, { stateBase });
+    const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
+    expect(byName["runner.model"]).toBeUndefined();
+  });
+
+  it("runner.model: silent for an unrecognized free-text id — it must stay legal", () => {
+    const { repo, stateBase } = makeRepo();
+    runInit(repo, { stateBase });
+    setRunnerKind(repo, "codex");
+    setRunnerModel(repo, "my-self-hosted-model");
+    const checks = runChecks(repo, { stateBase });
+    const byName = Object.fromEntries(checks.map((c) => [c.name, c]));
+    expect(byName["runner.model"]).toBeUndefined();
   });
 });
