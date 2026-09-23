@@ -1,6 +1,7 @@
 import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { ENGINES, type EngineKind } from "./engine.js";
 import { projectConfigDir, statePaths, type PathsOptions } from "../state/paths.js";
 import { LedgerSchema, ProjectConfigSchema } from "../state/schema.js";
 import { commandExists } from "../util/proc.js";
@@ -34,22 +35,23 @@ function jsonFileCheck(
   }
 }
 
-// Claude Code stores its OAuth token at ~/.claude/.credentials.json, refreshed
-// on every successful CLI call. We can't read its actual expiry (format is
-// undocumented/version-dependent), so this is a freshness heuristic, not a
-// real validity check — hence "warn", never "fail" (#21).
+// Both engines refresh their credentials file on every successful CLI call.
+// We can't read either format's real expiry (undocumented/version-dependent,
+// and for Codex unverified altogether — #42/#43), so this is a freshness
+// heuristic, not a real validity check — hence "warn", never "fail" (#21).
 const CREDENTIALS_STALE_MS = 48 * 60 * 60 * 1000;
 
 /** Best-effort OAuth-freshness probe: catches an expired-and-unrefreshable session before a headless run does. */
-export function checkClaudeAuth(opts: PathsOptions = {}): Check {
+export function checkEngineAuth(engine: EngineKind, opts: PathsOptions = {}): Check {
   const home = opts.home ?? homedir();
-  const file = path.join(home, ".claude", ".credentials.json");
-  const name = "claude auth";
+  const info = ENGINES[engine];
+  const file = info.credentialsPath(home);
+  const name = `${engine} auth`;
   if (!existsSync(file)) {
     return {
       name,
       level: "warn",
-      detail: `${file} not found — log in once with "claude /login" (or "claude login")`,
+      detail: `${file} not found — log in once with ${info.loginCommand}`,
     };
   }
   const ageMs = Date.now() - statSync(file).mtimeMs;
@@ -59,10 +61,21 @@ export function checkClaudeAuth(opts: PathsOptions = {}): Check {
       level: "warn",
       detail:
         `credentials untouched for ${Math.round(ageMs / 3_600_000)}h — if headless runs start failing ` +
-        `with an auth error, run "claude /login" (or "claude login")`,
+        `with an auth error, run ${info.loginCommand}`,
     };
   }
   return { name, level: "ok", detail: "credentials refreshed recently" };
+}
+
+/** Reads `runner.kind` from the committed config; falls back to "claude" when config is missing/unreadable — the pre-init case doctor already has to survive. */
+function readEngineKind(projectRoot: string): EngineKind {
+  try {
+    const file = path.join(projectConfigDir(projectRoot), "config.json");
+    const config = ProjectConfigSchema.parse(JSON.parse(readFileSync(file, "utf8")));
+    return config.runner.kind === "codex" ? "codex" : "claude";
+  } catch {
+    return "claude";
+  }
 }
 
 /** All environment/config checks that exist so far (grows with each milestone). */
@@ -85,12 +98,14 @@ export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[]
       : `${projectRoot} is not a git repository`,
   });
 
+  const engine = readEngineKind(projectRoot);
+  const engineInfo = ENGINES[engine];
   checks.push({
-    name: "claude CLI",
-    level: commandExists("claude") ? "ok" : "fail",
-    detail: commandExists("claude")
+    name: `${engine} CLI`,
+    level: commandExists(engineInfo.binary) ? "ok" : "fail",
+    detail: commandExists(engineInfo.binary)
       ? "found on PATH"
-      : "not found on PATH — install Claude Code (https://claude.com/claude-code)",
+      : `not found on PATH — install ${engineInfo.label} (${engineInfo.installUrl})`,
   });
 
   checks.push({
@@ -101,7 +116,7 @@ export function runChecks(projectRoot: string, opts: PathsOptions = {}): Check[]
       : "not found — the team manages work through GitHub issues; install gh and run gh auth login",
   });
 
-  checks.push(checkClaudeAuth(opts));
+  checks.push(checkEngineAuth(engine, opts));
 
   const configDir = projectConfigDir(projectRoot);
   checks.push(jsonFileCheck("config", path.join(configDir, "config.json"), ProjectConfigSchema));
