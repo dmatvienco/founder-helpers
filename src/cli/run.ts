@@ -4,6 +4,7 @@ import { parseArgs } from "node:util";
 import { assemblePrompt } from "../prompt/assemble.js";
 import { writeClaudeSettings } from "../permissions/settings.js";
 import { ClaudeRunner } from "../runner/claude-runner.js";
+import { CodexRunner } from "../runner/codex-runner.js";
 import { MockRunner, type MockScenario } from "../runner/mock-runner.js";
 import type { ProgressEvent, Runner } from "../runner/runner.js";
 import type { LimitReset } from "../runner/session-limit.js";
@@ -76,6 +77,7 @@ function selectRunner(config: ProjectConfig, sp: { root: string }, override?: Ru
       : [];
     return new MockRunner(scenarios, sp.root);
   }
+  if (kind === "codex") return new CodexRunner();
   return new ClaudeRunner();
 }
 
