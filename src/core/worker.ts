@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { runRole, type RunRoleOptions } from "../cli/run.js";
@@ -9,6 +8,7 @@ import { flushOutbox } from "../transport/outbox.js";
 import type { Transport } from "../transport/transport.js";
 import type { Runner } from "../runner/runner.js";
 import { limitPauseMs, type LimitReset } from "../runner/session-limit.js";
+import { branchExistsOnOrigin } from "../util/git.js";
 import { loadQueue, nextEligibleJob, removeJob, setRetry, setStage } from "./queue.js";
 import { runDigest } from "./digest.js";
 
@@ -125,7 +125,7 @@ export class Worker {
 
       // Post-conditions in code, not forensics.
       const branch = `${this.o.config.branchPrefix}issue-${issue}`;
-      if (!this.branchOnOrigin(branch)) {
+      if (!branchExistsOnOrigin(this.o.projectRoot, branch)) {
         lines.push(`⚠️ branch ${branch} not found on origin — dev may not have pushed`);
       }
       const report = path.join(this.o.paths.devDir, `report-issue${issue}.md`);
@@ -272,19 +272,6 @@ export class Worker {
         `🔒 Claude CLI session expired — run \`claude /login\` (or \`claude login\`) on the machine, ` +
           `everything resumes automatically. ${describeJob(job)} stays queued.`,
       );
-    }
-  }
-
-  private branchOnOrigin(branch: string): boolean {
-    try {
-      const out = execFileSync(
-        "git",
-        ["-C", this.o.projectRoot, "ls-remote", "--heads", "origin", branch],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-      );
-      return out.trim().length > 0;
-    } catch {
-      return false;
     }
   }
 

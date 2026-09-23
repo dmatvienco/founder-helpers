@@ -36,6 +36,24 @@ export function defaultBranch(dir: string): string {
   return "main";
 }
 
+export function hasOriginRemote(dir: string): boolean {
+  try {
+    git(dir, ["remote", "get-url", "origin"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether `branch` exists on `origin` right now — a network/auth call, not a local guess. */
+export function branchExistsOnOrigin(dir: string, branch: string): boolean {
+  try {
+    return git(dir, ["ls-remote", "--heads", "origin", branch]).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The safety interlock the whole shared-working-copy design rests on:
  * tracked files only — untracked scratch files must not block the team.
