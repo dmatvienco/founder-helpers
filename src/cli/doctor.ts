@@ -35,24 +35,33 @@ export interface Check {
   name: string;
   level: CheckLevel;
   detail: string;
+  /**
+   * True when a "fail" here means `--deep`'s live engine session cannot
+   * meaningfully run (missing binary, unreadable config, ...). False/absent
+   * for checks about the GitHub workflow (origin, labels, ...) that a live
+   * run needs never touch (#49).
+   */
+  prerequisite?: boolean;
 }
 
 function jsonFileCheck(
   name: string,
   file: string,
   schema: { parse: (v: unknown) => unknown },
+  opts: { prerequisite?: boolean } = {},
 ): Check {
   if (!existsSync(file)) {
-    return { name, level: "fail", detail: `${file} missing — run "fh init"` };
+    return { name, level: "fail", detail: `${file} missing — run "fh init"`, ...opts };
   }
   try {
     schema.parse(JSON.parse(readFileSync(file, "utf8")));
-    return { name, level: "ok", detail: file };
+    return { name, level: "ok", detail: file, ...opts };
   } catch (err) {
     return {
       name,
       level: "fail",
       detail: `${file} invalid: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`,
+      ...opts,
     };
   }
 }
@@ -74,6 +83,7 @@ export function checkEngineAuth(engine: EngineKind, opts: PathsOptions = {}): Ch
       name,
       level: "warn",
       detail: `${file} not found — log in once with ${info.loginCommand}`,
+      prerequisite: true,
     };
   }
   const ageMs = Date.now() - statSync(file).mtimeMs;
@@ -84,9 +94,10 @@ export function checkEngineAuth(engine: EngineKind, opts: PathsOptions = {}): Ch
       detail:
         `credentials untouched for ${Math.round(ageMs / 3_600_000)}h — if headless runs start failing ` +
         `with an auth error, run ${info.loginCommand}`,
+      prerequisite: true,
     };
   }
-  return { name, level: "ok", detail: "credentials refreshed recently" };
+  return { name, level: "ok", detail: "credentials refreshed recently", prerequisite: true };
 }
 
 /** Reads the committed config; `undefined` when missing/unreadable — the pre-init case doctor already has to survive. */
@@ -203,6 +214,7 @@ export function runChecks(projectRoot: string, opts: RunChecksOptions = {}): Che
     name: "node",
     level: (major ?? 0) >= 20 ? "ok" : "fail",
     detail: `v${process.versions.node} (need >= 20)`,
+    prerequisite: true,
   });
 
   const inRepo = isGitRepo(projectRoot);
@@ -248,6 +260,7 @@ export function runChecks(projectRoot: string, opts: RunChecksOptions = {}): Che
     detail: binaryExists(engineInfo.binary)
       ? "found on PATH"
       : `not found on PATH — install ${engineInfo.label} (${engineInfo.installUrl})`,
+    prerequisite: true,
   });
 
   checks.push({
@@ -271,7 +284,11 @@ export function runChecks(projectRoot: string, opts: RunChecksOptions = {}): Che
   checks.push(checkEngineAuth(engine, opts));
 
   const configDir = projectConfigDir(projectRoot);
-  checks.push(jsonFileCheck("config", path.join(configDir, "config.json"), ProjectConfigSchema));
+  checks.push(
+    jsonFileCheck("config", path.join(configDir, "config.json"), ProjectConfigSchema, {
+      prerequisite: true,
+    }),
+  );
 
   if (projectConfig && looksLikeOtherEngineModel(projectConfig.runner.model, engine)) {
     const other = otherEngine(engine);
@@ -286,13 +303,15 @@ export function runChecks(projectRoot: string, opts: RunChecksOptions = {}): Che
   }
 
   checks.push(
-    jsonFileCheck("permissions ledger", path.join(configDir, "permissions.json"), LedgerSchema),
+    jsonFileCheck("permissions ledger", path.join(configDir, "permissions.json"), LedgerSchema, {
+      prerequisite: true,
+    }),
   );
 
   const sp = statePaths(projectRoot, opts);
   try {
     accessSync(sp.root, constants.W_OK);
-    checks.push({ name: "state dir", level: "ok", detail: sp.root });
+    checks.push({ name: "state dir", level: "ok", detail: sp.root, prerequisite: true });
   } catch {
     checks.push({
       name: "state dir",
@@ -300,6 +319,7 @@ export function runChecks(projectRoot: string, opts: RunChecksOptions = {}): Che
       detail: existsSync(sp.root)
         ? `${sp.root} not writable`
         : `${sp.root} missing — run "fh init"`,
+      prerequisite: true,
     });
   }
 
@@ -649,12 +669,21 @@ export async function doctorCommand(
   if (failed.length) {
     console.log("");
     console.log(`${failed.length} check(s) failed.`);
-    return 1;
   }
   if (!values.deep) {
+    if (failed.length) return 1;
     console.log("");
     console.log("All good.");
     return 0;
+  }
+
+  const prereqFailed = failed.find((c) => c.prerequisite);
+  if (prereqFailed) {
+    console.log("");
+    console.log(
+      `live check SKIPPED — prerequisite "${prereqFailed.name}" failed; nothing about the engine was verified`,
+    );
+    return 1;
   }
 
   const projectConfig = readProjectConfig(cwd);
@@ -670,6 +699,10 @@ export async function doctorCommand(
   console.log("");
   if (!deep.ok) {
     console.log("Deep check failed.");
+    return 1;
+  }
+  if (failed.length) {
+    console.log(`Deep check passed, but ${failed.length} other check(s) failed above.`);
     return 1;
   }
   console.log("All good (deep check passed).");
