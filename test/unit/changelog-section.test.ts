@@ -62,6 +62,16 @@ describe("extractChangelogSection", () => {
     expect(extractChangelogSection(changelog, "1.0")).toBeNull();
   });
 
+  // Windows checkouts have core.autocrlf=true, so CHANGELOG.md gets CRLF line
+  // endings there; a plain split("\n") leaves a trailing \r on every heading
+  // and the line === heading match never fires (#53).
+  it("extracts a section from a CRLF-terminated changelog, joining with LF", () => {
+    const crlfChangelog = CHANGELOG.split("\n").join("\r\n");
+    expect(extractChangelogSection(crlfChangelog, "0.2.0")).toBe(
+      "- middle entry, line one\n- middle entry, line two",
+    );
+  });
+
   // Runs against the repo's real CHANGELOG.md, not a fixture, so a shape the
   // fixture doesn't cover (e.g. a mid-file "## " that isn't a version) fails
   // here first. Logged so `npm test` output doubles as the manual spot-check

@@ -17,7 +17,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 // -- a real case: a CI-only or test-only release ships no changelog entry.
 export function extractChangelogSection(changelog, version) {
   const heading = `## ${version}`;
-  const lines = changelog.split("\n");
+  const lines = changelog.split(/\r?\n/);
   const startIndex = lines.findIndex((line) => line === heading);
   if (startIndex === -1) return null;
 
