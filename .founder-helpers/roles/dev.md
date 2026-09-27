@@ -129,6 +129,19 @@ project-specific lands here. The team edits this file itself as it learns. Commi
   by design, #21), so it was left as-is rather than threading a fake `home`
   through every call for no behavior change; flag it again if a future check
   in that function ever gains a `fail` branch.
+- Codex's real `exec --json` output (seen 2026-09-27 on a live ChatGPT-account
+  run's failure log, quoted in #55) is `{"type":"item.completed",...}` /
+  `{"type":"turn.failed","error":{"message":"..."}}` — there is no top-level
+  `"msg"` key at all. `codex-stream.ts`'s `parseCodexLine` (and
+  `codex-runner.ts`'s `looksLikeCodexJson` sniff) expect `{"msg":{"type":
+  ...}}` and silently produce zero events for this shape: not a crash, just
+  no `onProgress` lines and no structured `auth_error`/`session_id` capture.
+  Raw-text tail matching still works regardless (rate-limit/auth regexes and
+  doctor's fix-line substring checks all read `output.log` text, not parsed
+  events), which is why #55 didn't need to touch this. A real gap for a
+  future issue, still unverified which shape is current vs a version-specific
+  quirk (#42/#43/#45) — don't fix it opportunistically inside an unrelated
+  issue; it needs its own fixtures and tests.
 
 ## Build, test and smoke procedures
 
@@ -145,6 +158,13 @@ project-specific lands here. The team edits this file itself as it learns. Commi
 - Zero new runtime dependencies without a founder yes; hand-rolled > imported
   for small things — the codebase is meant to be read end-to-end.
 - Errors shown to users must say what to DO, not just what broke.
+- CHANGELOG.md is written only by `chore: release X.Y.Z` commits — checked
+  `git log --follow -- CHANGELOG.md` back to 0.1.1, every entry crediting an
+  issue (#52, #53, #54, ...) landed in the release commit, never in that
+  issue's own dev/merge commits. An issue's "Fix" list asking for "a
+  CHANGELOG entry" (seen on #55) is a template phrase, not a per-issue
+  convention here — leave CHANGELOG.md untouched and say so in the report
+  rather than guessing at wording that the release step will write anyway.
 
 ## Lessons learned
 

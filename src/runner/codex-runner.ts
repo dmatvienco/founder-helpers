@@ -15,8 +15,8 @@ const TAIL_LIMIT = 64 * 1024; // keep the last 64KB of extracted text for status
  * while this was written (#42) — model knowledge only. A wrong flag must be
  * a one-line fix plus a test update here, not a hunt through the runner.
  *
- *   codex [binArgs] exec [resume <id>] "<prompt>" --model <m> --json --sandbox workspace-write [--config sandbox_workspace_write.writable_roots=[...]]
- *   codex [binArgs] exec [resume <id>] "<prompt>" --model <m> --json --dangerously-bypass-approvals-and-sandbox
+ *   codex [binArgs] exec [resume <id>] "<prompt>" [--model <m>] --json --sandbox workspace-write [--config sandbox_workspace_write.writable_roots=[...]]
+ *   codex [binArgs] exec [resume <id>] "<prompt>" [--model <m>] --json --dangerously-bypass-approvals-and-sandbox
  *
  * `settingsFile` has no Codex equivalent (no per-command allow/deny list)
  * and is deliberately not read here — the runner logs its own caveat line
@@ -27,11 +27,19 @@ const TAIL_LIMIT = 64 * 1024; // keep the last 64KB of extracted text for status
  * bypass there is no sandbox to widen, so it's skipped there. The
  * `sandbox_workspace_write.writable_roots` config key is the same kind of
  * unverified model knowledge as every other flag above (#45).
+ *
+ * `--model` is omitted entirely when `spec.model` is empty (engine.ts's
+ * `ENGINE_OWN_DEFAULT`, fh init's Enter-default for this engine): Codex picks
+ * its own default from the account's own login/config, and a hardcoded model
+ * id can be rejected outright depending on login type — e.g. `gpt-5-codex` on
+ * a ChatGPT-account login (#55).
  */
 export function buildCodexArgs(spec: RunSpec): string[] {
   const args: string[] = [...(spec.binArgs ?? []), "exec"];
   if (spec.resumeSessionId) args.push("resume", spec.resumeSessionId);
-  args.push(spec.spawnPrompt, "--model", spec.model, "--json");
+  args.push(spec.spawnPrompt);
+  if (spec.model) args.push("--model", spec.model);
+  args.push("--json");
   if (spec.permissionMode === "bypass") {
     args.push("--dangerously-bypass-approvals-and-sandbox");
   } else {

@@ -1,17 +1,24 @@
 import { describe, expect, it } from "vitest";
+import { ENGINE_OWN_DEFAULT } from "../../src/cli/engine.js";
 import { KNOWN_MODELS, pickModel } from "../../src/cli/model-picker.js";
 
 function io(answers: string[]): {
   ask: (q: string) => Promise<string>;
   say: (l: string) => void;
   said: string[];
+  asked: string[];
 } {
   const said: string[] = [];
+  const asked: string[] = [];
   const queue = [...answers];
   return {
     said,
+    asked,
     say: (l) => said.push(l),
-    ask: async () => queue.shift() ?? "",
+    ask: async (q) => {
+      asked.push(q);
+      return queue.shift() ?? "";
+    },
   };
 }
 
@@ -46,6 +53,13 @@ describe("pickModel", () => {
     for (const m of KNOWN_MODELS.claude) {
       expect(picker.said.some((l) => l.includes(m.alias))).toBe(true);
     }
+  });
+
+  it("shows a friendly 'own default' label, not empty quotes, when no model is pinned (#55)", async () => {
+    const picker = io([""]);
+    const model = await pickModel(picker, ENGINE_OWN_DEFAULT, "codex");
+    expect(model).toBe(ENGINE_OWN_DEFAULT);
+    expect(picker.asked[0]).toContain("Codex's own default");
   });
 
   it("picks from the codex list when the codex engine is passed", async () => {

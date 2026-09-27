@@ -218,6 +218,29 @@ describe("runDeepCheck", () => {
     expect(text).toContain("buildCodexArgs");
   });
 
+  it("names unpinning runner.model as the fix when Codex rejects the pinned model for this account (#55)", async () => {
+    const { repo, stateBase } = makeProject();
+    setEngineKind(repo, "codex");
+    const runner = new MockRunner(
+      [
+        {
+          role: "selftest",
+          exitCode: 1,
+          stdout:
+            '{"type":"turn.failed","error":{"message":"The \'gpt-5-codex\' model is not supported when using Codex with a ChatGPT account."}}\n',
+        },
+      ],
+      repo,
+    );
+
+    const result = await runDeepCheck(repo, { stateBase, runner });
+
+    expect(result.ok).toBe(false);
+    const text = result.lines.join("\n");
+    expect(text).toContain("this Codex account rejects the pinned model");
+    expect(text).toContain('runner.model to ""');
+  });
+
   it('writes a run record under role "selftest", distinguishable from a real role run', async () => {
     const { repo, stateBase } = makeProject();
     const sp = statePaths(repo, { stateBase });
