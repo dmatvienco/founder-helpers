@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.2
+
+- Codex runs no longer hang until the timeout. The runner left the child's
+  stdin open, and `codex exec` reads stdin to EOF even when the prompt is an
+  argument ("Reading additional input from stdin..."), so every Codex run —
+  `fh doctor --deep` and real role runs alike — died after the hard timeout.
+  Both runners now spawn with stdin closed (#54).
+- Every release now also creates a GitHub Release, with the notes taken from
+  its CHANGELOG entry (#52, #53).
+
 ## 0.13.1
 
 - `fh doctor --deep` no longer skips its live run because of checks that say
