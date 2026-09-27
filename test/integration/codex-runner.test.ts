@@ -139,6 +139,22 @@ describe("runRole with the CodexRunner (fake codex binaries, #42)", () => {
     expect(events).toEqual([]);
   });
 
+  it("closes the child's stdin so a CLI that reads to EOF finishes well under the timeout (#54)", async () => {
+    const { repo, stateBase } = makeProject();
+    const startedAt = Date.now();
+    const outcome = await runRole(repo, "dev", {
+      issue: 42,
+      paths: { stateBase },
+      timeoutMsOverride: 5000,
+      runner: new CodexRunner(),
+      ...fake("codex-stdin-eof.cjs"),
+    });
+    expect(outcome.record.status).toBe("ok");
+    // Well under the 5s timeout — a fixture that hangs on stdin EOF would
+    // otherwise time out instead of resolving here at all.
+    expect(Date.now() - startedAt).toBeLessThan(3000);
+  });
+
   it("kills the whole tree on timeout", { timeout: 20000 }, async () => {
     const { repo, stateBase } = makeProject();
     const outcome = await runRole(repo, "pm", {

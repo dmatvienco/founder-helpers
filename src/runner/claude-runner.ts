@@ -73,7 +73,12 @@ export class ClaudeRunner implements Runner {
     const args = buildClaudeArgs(spec);
 
     const started = Date.now();
-    const child = spawnTracked(spec.bin ?? "claude", args, { cwd: spec.cwd });
+    // Same as CodexRunner (#54): close stdin from the start rather than
+    // leave an open pipe with no data — `claude -p` warns about it too.
+    const child = spawnTracked(spec.bin ?? "claude", args, {
+      cwd: spec.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
     let textTail = "";
     const appendTail = (text: string): void => {
