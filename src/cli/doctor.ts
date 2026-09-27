@@ -11,7 +11,7 @@ import {
 import { homedir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { ENGINES, type EngineKind } from "./engine.js";
+import { describeDefaultModel, ENGINES, type EngineKind } from "./engine.js";
 import { KNOWN_MODELS } from "./model-picker.js";
 import { loadConfig, loadLedger, selectRunner } from "./run.js";
 import { writeClaudeSettings } from "../permissions/settings.js";
@@ -298,7 +298,7 @@ export function runChecks(projectRoot: string, opts: RunChecksOptions = {}): Che
       detail:
         `"${projectConfig.runner.model}" looks like a ${ENGINES[other].label} model, but runner.kind ` +
         `is "${engine}" — likely a stale value from switching engines. Try ` +
-        `"${ENGINES[engine].defaultModel}" or re-run "fh init".`,
+        `${describeDefaultModel(engine)} or re-run "fh init".`,
     });
   }
 
@@ -447,6 +447,11 @@ const SENTINEL_NAME = "doctor-selftest-sentinel.txt";
 const SENTINEL_TOKEN = "founder-helpers-selftest-ok";
 const USAGE_ERROR_RE =
   /unknown (option|argument|flag)|unrecognized (option|argument)|unexpected argument|invalid option|not a valid (option|argument)/i;
+// The exact wording Codex uses when a pinned model is rejected for the
+// account's login type (e.g. gpt-5-codex on a ChatGPT-account login, #55) —
+// a plain substring match, not a parse of the JSON event around it.
+const CODEX_MODEL_UNSUPPORTED_RE =
+  /model is not supported|not supported when using codex with a chatgpt account/i;
 
 function selftestPrompt(sentinelPath: string): string {
   return (
@@ -485,6 +490,16 @@ function failureLines(result: RunResult, spec: RunSpec, engine: EngineKind): str
   } else if (result.status === "timeout") {
     lines.push(
       `fix: the engine started but never finished within ${Math.round(spec.timeoutMs / 1000)}s`,
+    );
+  } else if (
+    result.status === "error" &&
+    engine === "codex" &&
+    CODEX_MODEL_UNSUPPORTED_RE.test(tailLines(result.outputLog, 200).join("\n"))
+  ) {
+    lines.push(
+      `fix: this Codex account rejects the pinned model — set runner.model to "" in config.json to ` +
+        `let Codex use its own default (deleting the key instead falls back to the claude-sonnet-5 ` +
+        `schema default, not Codex's), or pick a model your account supports.`,
     );
   } else if (
     result.status === "error" &&

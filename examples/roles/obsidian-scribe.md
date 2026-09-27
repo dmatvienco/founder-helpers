@@ -26,7 +26,7 @@ To use it:
    point the digest at the nightly pass:
 
 ```jsonc
-"runner": { "kind": "codex", "model": "gpt-5-codex", "permissionMode": "allowlist" },
+"runner": { "kind": "codex", "model": "", "permissionMode": "allowlist" },
 "checks": [],
 "digest": {
   "enabled": true,

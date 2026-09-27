@@ -11,7 +11,7 @@
  * #43) — model knowledge only, same caveat as engine.ts's ENGINES registry.
  */
 
-import type { EngineKind } from "./engine.js";
+import { ENGINE_OWN_DEFAULT, ENGINES, type EngineKind } from "./engine.js";
 import type { PairIo } from "./pair.js";
 
 export interface ModelChoice {
@@ -27,9 +27,9 @@ export const KNOWN_MODELS: Record<EngineKind, ModelChoice[]> = {
     { alias: "fable", label: "fable — creative/expressive tone" },
   ],
   codex: [
-    { alias: "gpt-5-codex", label: "gpt-5-codex — balanced, current default" },
-    { alias: "gpt-5", label: "gpt-5 — most capable, slower/pricier" },
-    { alias: "o4-mini", label: "o4-mini — fastest/cheapest" },
+    { alias: "gpt-5-codex", label: "gpt-5-codex — optional pick, unverified" },
+    { alias: "gpt-5", label: "gpt-5 — optional pick, unverified" },
+    { alias: "o4-mini", label: "o4-mini — optional pick, unverified" },
   ],
 };
 
@@ -51,7 +51,9 @@ export async function pickModel(
     io.say(`  ${i + 1}) ${m.label}`);
   }
   io.say(`  Or type any other model id directly.`);
-  const answer = (await io.ask(`Model [Enter = ${current}]: `)).trim();
+  const currentLabel =
+    current === ENGINE_OWN_DEFAULT ? `${ENGINES[engine].label}'s own default` : current;
+  const answer = (await io.ask(`Model [Enter = ${currentLabel}]: `)).trim();
   if (!answer) return current;
   const idx = Number(answer);
   if (Number.isInteger(idx) && idx >= 1 && idx <= models.length) {

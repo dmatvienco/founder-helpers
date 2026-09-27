@@ -16,6 +16,16 @@ import type { PairIo } from "./pair.js";
 
 export type EngineKind = "claude" | "codex";
 
+/**
+ * Sentinel for `EngineInfo.defaultModel` / `runner.model`: nothing pinned —
+ * the engine picks its own default. Only meaningful for an engine whose CLI
+ * accepts running with no model flag at all (Codex does; `codex exec` uses
+ * whatever the logged-in account's own config/login type defaults to). Never
+ * a real model id/alias, so it's the empty string: falsy, safe to `if
+ * (spec.model)` around in `buildCodexArgs` (#55).
+ */
+export const ENGINE_OWN_DEFAULT = "";
+
 export interface EngineInfo {
   kind: EngineKind;
   label: string;
@@ -28,8 +38,9 @@ export interface EngineInfo {
   /**
    * Model offered as the `pickModel` baseline right after switching INTO this
    * engine (see `init.ts`'s `chooseEngineAndModel`) — must be this engine's
-   * own model, never the previous engine's stored one (#44). Matches the
-   * "balanced, current default" entry in model-picker.ts's `KNOWN_MODELS`.
+   * own model, never the previous engine's stored one (#44). Either a real
+   * alias from model-picker.ts's `KNOWN_MODELS`, or `ENGINE_OWN_DEFAULT` for
+   * an engine that would rather choose for itself (#55).
    */
   defaultModel: string;
 }
@@ -51,9 +62,15 @@ export const ENGINES: Record<EngineKind, EngineInfo> = {
     installUrl: "https://github.com/openai/codex",
     loginCommand: '"codex login"',
     credentialsPath: (home) => path.join(home, ".codex", "auth.json"),
-    defaultModel: "gpt-5-codex",
+    defaultModel: ENGINE_OWN_DEFAULT,
   },
 };
+
+/** `ENGINES[engine].defaultModel`, but readable — the real alias quoted, or a friendly phrase for `ENGINE_OWN_DEFAULT` instead of an empty pair of quotes (#55). */
+export function describeDefaultModel(engine: EngineKind): string {
+  const model = ENGINES[engine].defaultModel;
+  return model === ENGINE_OWN_DEFAULT ? `${ENGINES[engine].label}'s own default` : `"${model}"`;
+}
 
 /**
  * Ask which engine runs the team's sessions. Same injected ask/say pattern as
