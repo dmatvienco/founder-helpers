@@ -96,4 +96,10 @@ describe("buildCodexArgs", () => {
     ]);
     expect(args).not.toContain("--config");
   });
+
+  it("omits --model entirely when no model is pinned, so Codex picks its own default (#55)", () => {
+    const args = buildCodexArgs(baseSpec({ model: "" }));
+    expect(args).not.toContain("--model");
+    expect(args).toEqual(["exec", "@/tmp/prompt.md", "--json", "--sandbox", "workspace-write"]);
+  });
 });
