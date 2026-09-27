@@ -84,7 +84,13 @@ export class CodexRunner implements Runner {
 
     const args = buildCodexArgs(spec);
     const started = Date.now();
-    const child = spawnTracked(spec.bin ?? "codex", args, { cwd: spec.cwd });
+    // stdin closed from the start: `codex exec` reads stdin to EOF even with
+    // a prompt argument ("Reading additional input from stdin...") and hangs
+    // forever on the default open pipe (#54).
+    const child = spawnTracked(spec.bin ?? "codex", args, {
+      cwd: spec.cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
     let textTail = "";
     const appendTail = (text: string): void => {
