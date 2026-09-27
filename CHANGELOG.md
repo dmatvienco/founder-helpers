@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.3
+
+- Codex no longer gets a forced `--model gpt-5-codex`. A ChatGPT-account
+  Codex login rejects that model with a 400, so every Codex run failed right
+  away. With no model pinned, Codex now picks its own default; `fh init`
+  offers that as the Enter choice, and `fh doctor` names the fix when the
+  account rejects a pinned model (#55). A config that already pins
+  `"model": "gpt-5-codex"` keeps sending it — set `"model": ""` to use the
+  engine's default.
+
 ## 0.13.2
 
 - Codex runs no longer hang until the timeout. The runner left the child's
