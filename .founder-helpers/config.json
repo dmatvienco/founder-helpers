@@ -10,7 +10,7 @@
   },
   "runner": {
     "kind": "claude",
-    "model": "claude-sonnet-5",
+    "model": "claude-sonnet-5-5",
     "permissionMode": "allowlist"
   },
   "roles": {
@@ -19,11 +19,11 @@
     },
     "dev": {
       "timeoutMin": 90,
-      "model": "claude-sonnet-5"
+      "model": "claude-sonnet-5-5"
     },
     "reviewer": {
       "timeoutMin": 20,
-      "model": "claude-sonnet-5"
+      "model": "claude-sonnet-5-5"
     }
   },
   "digest": {
