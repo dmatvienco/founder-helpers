@@ -23,6 +23,8 @@ export interface MockScenario {
   progressEvents?: { text: string; delayMs?: number }[];
   /** Session id this "run" pretends the CLI reported, for reply-mode continuity tests. */
   sessionId?: string;
+  /** Side effect fired while the "run" is in flight (spec recorded, run not finished) — e.g. the PM's own `fh session reset`. */
+  duringRun?: () => void;
 }
 
 export class MockRunner implements Runner {
@@ -44,6 +46,7 @@ export class MockRunner implements Runner {
       writeFileSync(outputLog, `[mock] no scenario for role "${spec.role}"\n`, "utf8");
       return { status: "error", exitCode: 1, outputLog, durationMs: 0 };
     }
+    scenario.duringRun?.();
     for (const event of scenario.progressEvents ?? []) {
       if (event.delayMs) await new Promise((r) => setTimeout(r, event.delayMs));
       spec.onProgress?.({ text: event.text });
