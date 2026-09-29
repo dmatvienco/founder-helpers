@@ -1,9 +1,15 @@
+import path from "node:path";
 import { startDaemon } from "../core/daemon.js";
+import { installExitLogging } from "../core/exit-log.js";
+import { createLogger } from "../state/log.js";
+import { statePaths } from "../state/paths.js";
 
 export async function daemonCommand(_args: string[]): Promise<number> {
+  const logger = createLogger(path.join(statePaths(process.cwd()).logsDir, "daemon.log"));
+  installExitLogging(logger);
   let handle;
   try {
-    handle = await startDaemon(process.cwd());
+    handle = await startDaemon(process.cwd(), { logger });
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     return 1;
