@@ -248,7 +248,9 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
       [
         {
           role: "pm",
-          delayMs: 80,
+          // Fired by the runner itself, so it is provably inside the run — a
+          // wall-clock timer raced the run's start under CI load (#57).
+          duringRun: () => resetPmSession(env.sp.pmSessionFile),
           writeFiles: [{ path: "outbox/reply.txt", content: "начинаем с чистого листа" }],
           // The CLI still reports the session it was resumed on — the reset
           // happened as a *side effect* mid-run (the PM's own `fh session
@@ -259,9 +261,6 @@ describe("daemon E2E (mock runner + mock telegram)", () => {
       env.sp.root,
     );
     await boot(env, [], { runner });
-
-    // Fires mid-run, simulating the PM's own `fh session reset` Bash call.
-    setTimeout(() => resetPmSession(env.sp.pmSessionFile), 20);
 
     env.server.pushUpdate("забудь всё");
     await until(
