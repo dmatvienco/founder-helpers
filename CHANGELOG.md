@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.4
+
+- The daemon now writes why it went down to `daemon.log` before the process
+  exits: an uncaught exception or unhandled rejection (with the stack), a
+  received SIGINT/SIGTERM/SIGHUP/SIGBREAK, and a final `process exit code=N`
+  line. Previously a daemon that died and was restarted left no trace at all
+  (#56).
+- Fixed a flaky daemon test ("fh session reset mid-run is honored") that
+  depended on a wall-clock timer; it could turn CI red at random (#57).
+
 ## 0.13.3
 
 - Codex no longer gets a forced `--model gpt-5-codex`. A ChatGPT-account
