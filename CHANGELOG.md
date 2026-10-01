@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.5
+
+- The repo's own digest metrics script (`scripts/collect-metrics.mjs`, not part
+  of the published package) also collects npm downloads per version and per day,
+  so the morning digest can tell real usage apart from the mirror and scanner
+  fetches each release triggers (#58). No change to the installed CLI.
+
 ## 0.13.4
 
 - The daemon now writes why it went down to `daemon.log` before the process
