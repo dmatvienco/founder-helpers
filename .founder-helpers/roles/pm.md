@@ -80,6 +80,33 @@ monthlyRange: { start, end }, error } }`. Read that file for the 📊 block:
   (npm omitted the dates) means the freshness is unknown, not current — say
   so rather than reporting the count as live.
 
+Since #58 (merged 2026-10-01, 3d38460) `npm` also carries `byVersion`,
+`latest`, `latestDownloads`, `byVersionError` (from
+`api.npmjs.org/versions/founder-helpers/last-week`) and `daily` (`[{ day,
+downloads }]`, last month), `dailyError`. In the 📊 block:
+
+- Never call the raw `weekly`/`monthly` total "users" or "installs". It counts
+  every tarball fetch; mirrors, scanners and caches pull each new version, so
+  it scales with how often we release. Label it "загрузки npm (сырые, вкл.
+  зеркала)".
+- Lead the npm line with `latest` + `latestDownloads` (last week) and the
+  last few `daily` values; a spike on a release day and a flat floor between
+  releases is the bot pattern, a floor that rises over weeks is the usage
+  signal. Say which one you see, one short clause.
+- `latest` may lag a fresh release: the versions endpoint lists only versions
+  with downloads in the window. If `latest` is older than `package.json`'s
+  version, say so instead of reporting it as current.
+- A non-null `byVersionError` / `dailyError` is reported like `npm.error`:
+  that sub-line is missing, with the error string. The first digest after
+  #58 is the first time the live endpoint shapes are checked — an "unexpected
+  response shape" error there means the parser is wrong, not npm.
+- Real-user evidence is stars/forks/watchers/external issues; pre-launch,
+  say plainly it is near zero.
+
+Why: on 2026-10-01 (run pm_q0gb) a colleague of the founder pointed out that
+883/wk "downloads" with 1 star and 0 external issues are not users; we had
+shipped 19 releases between 08-10 and 09-30.
+
 ### Reply mode: write the outbox before long tail-work (since 2026-09-08)
 
 When a founder message triggers work with a long tail (watching a CI or
