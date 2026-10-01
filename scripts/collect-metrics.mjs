@@ -6,6 +6,19 @@
 // digest to read. No runtime dependency beyond `gh` (already on PATH for
 // this team) and Node 20's built-in fetch.
 //
+// pm/metrics.json shape (npm block):
+//   weekly, weeklyRange, monthly, monthlyRange, error   -- point totals; they
+//     count every tarball fetch, mirrors and scanners included, so they track
+//     our release cadence more than users (see issue #58).
+//   byVersion        { "<version>": n } downloads per version, last week
+//   latest           highest semver key of byVersion (null if none)
+//   latestDownloads  byVersion[latest] (null if none)
+//   byVersionError   why byVersion is null (null on success)
+//   daily            [{ day, downloads }] for the last month, as npm sends it
+//   dailyError       why daily is null (null on success)
+// Each npm fetch fails independently: a failed one sets its own error field
+// and the others are still collected.
+//
 // The state dir path arrives via FH_STATE_ROOT, set by the daemon
 // (src/core/digest.ts) on the prepare command's environment -- this script
 // never recomputes the per-OS/per-project path itself.
@@ -41,6 +54,56 @@ export function parseNpmDownloadPoint(json) {
   };
 }
 
+function parseSemver(v) {
+  const m = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$/.exec(v);
+  return m ? { core: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ?? null } : null;
+}
+
+// Negative when a < b. A prerelease sorts below its release; prerelease tags
+// compare as plain strings (good enough to pick a "latest" for the digest).
+function compareSemver(a, b) {
+  for (let i = 0; i < 3; i++) if (a.core[i] !== b.core[i]) return a.core[i] - b.core[i];
+  if (a.pre === b.pre) return 0;
+  if (a.pre === null) return 1;
+  if (b.pre === null) return -1;
+  return a.pre < b.pre ? -1 : 1;
+}
+
+function isPlainObject(x) {
+  return typeof x === "object" && x !== null && !Array.isArray(x);
+}
+
+// npm's versions endpoint answers `{ package, downloads: { "<version>": n } }`.
+// Non-numeric entries are dropped; a missing/odd `downloads` map is null.
+export function parseNpmVersions(json) {
+  const none = { byVersion: null, latest: null, latestDownloads: null };
+  if (!isPlainObject(json) || !isPlainObject(json.downloads)) return none;
+  const byVersion = {};
+  let latest = null;
+  for (const [version, n] of Object.entries(json.downloads)) {
+    if (typeof n !== "number") continue;
+    byVersion[version] = n;
+    const parsed = parseSemver(version);
+    if (parsed && (latest === null || compareSemver(parsed, latest.parsed) > 0)) {
+      latest = { version, parsed };
+    }
+  }
+  return {
+    byVersion,
+    latest: latest ? latest.version : null,
+    latestDownloads: latest ? byVersion[latest.version] : null,
+  };
+}
+
+// npm's range endpoint answers `{ start, end, package, downloads: [{ day,
+// downloads }] }`. Returns the array (malformed entries dropped) or null.
+export function parseNpmDailyRange(json) {
+  if (!isPlainObject(json) || !Array.isArray(json.downloads)) return null;
+  return json.downloads
+    .filter((d) => isPlainObject(d) && typeof d.day === "string" && typeof d.downloads === "number")
+    .map((d) => ({ day: d.day, downloads: d.downloads }));
+}
+
 function errorMessage(err) {
   return err instanceof Error ? err.message : String(err);
 }
@@ -66,7 +129,52 @@ export async function collectGithub(repo = REPO, execFn = execFileAsync) {
   }
 }
 
+async function fetchJson(url, label, fetchFn) {
+  const res = await fetchFn(url);
+  if (!res.ok) throw new Error(`${label} HTTP ${res.status}`);
+  return res.json();
+}
+
+async function collectNpmVersions(pkg, fetchFn) {
+  try {
+    const url = `https://api.npmjs.org/versions/${encodeURIComponent(pkg)}/last-week`;
+    const parsed = parseNpmVersions(await fetchJson(url, "npm versions last-week", fetchFn));
+    if (parsed.byVersion === null) {
+      throw new Error("npm versions last-week: unexpected response shape");
+    }
+    return { ...parsed, byVersionError: null };
+  } catch (err) {
+    return {
+      byVersion: null,
+      latest: null,
+      latestDownloads: null,
+      byVersionError: errorMessage(err),
+    };
+  }
+}
+
+async function collectNpmDaily(pkg, fetchFn) {
+  try {
+    const url = `https://api.npmjs.org/downloads/range/last-month/${encodeURIComponent(pkg)}`;
+    const label = "npm downloads range last-month";
+    const daily = parseNpmDailyRange(await fetchJson(url, label, fetchFn));
+    if (daily === null) throw new Error(`${label}: unexpected response shape`);
+    return { daily, dailyError: null };
+  } catch (err) {
+    return { daily: null, dailyError: errorMessage(err) };
+  }
+}
+
 export async function collectNpm(pkg = PACKAGE, fetchFn = fetch) {
+  const [points, versions, daily] = await Promise.all([
+    collectNpmPoints(pkg, fetchFn),
+    collectNpmVersions(pkg, fetchFn),
+    collectNpmDaily(pkg, fetchFn),
+  ]);
+  return { ...points, ...versions, ...daily };
+}
+
+async function collectNpmPoints(pkg, fetchFn) {
   try {
     const [week, month] = await Promise.all([
       fetchDownloadPoint("last-week", pkg, fetchFn),
@@ -114,6 +222,12 @@ async function main() {
 
   if (metrics.github.error) console.error(`collect-metrics: github error: ${metrics.github.error}`);
   if (metrics.npm.error) console.error(`collect-metrics: npm error: ${metrics.npm.error}`);
+  if (metrics.npm.byVersionError) {
+    console.error(`collect-metrics: npm versions error: ${metrics.npm.byVersionError}`);
+  }
+  if (metrics.npm.dailyError) {
+    console.error(`collect-metrics: npm daily error: ${metrics.npm.dailyError}`);
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
